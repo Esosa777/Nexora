@@ -77,7 +77,7 @@ export default function Home() {
 
       <ChatSidebar 
         onSelectChannel={setSelectedChannelId} 
-        selectedChannelId={selectedChannelId} 
+        activeChannelId={selectedChannelId} 
       />
       <ChatArea channelId={selectedChannelId} />
     </div>

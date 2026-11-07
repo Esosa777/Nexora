@@ -207,22 +207,10 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
     if (!isFarFromBottom) setUnreadCount(0);
   };
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setCurrentUser(user);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCurrentUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
+useEffect(() => {
     if (!channelId || !currentUser) return;
 
-    // Presence Channel for Online Member Count
+    // 1. Declare presenceChannel inside the effect scope
     const presenceChannel = supabase.channel(`room_presence:${channelId}`, {
       config: {
         presence: {
@@ -231,6 +219,7 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
       },
     });
 
+    // 2. Setup listeners and subscribe
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannel.presenceState();
@@ -245,31 +234,12 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
         }
       });
 
-    // Typing Broadcast Channel
-    const typingChannel = supabase.channel(`typing:${channelId}`);
-    
-    typingChannel
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        const { userId, username, isTyping } = payload.payload;
-        if (userId === currentUser.id) return;
-
-        setTypingUsers((prev) => {
-          if (isTyping && !prev.includes(username)) {
-            return [...prev, username];
-          } else if (!isTyping) {
-            return prev.filter((u) => u !== username);
-          }
-          return prev;
-        });
-      })
-      .subscribe();
-
+    // 3. Cleanup function safely inside the same scope
     return () => {
       supabase.removeChannel(presenceChannel);
-      supabase.removeChannel(typingChannel);
     };
   }, [channelId, currentUser]);
-
+  
   useEffect(() => {
     if (!channelId) {
       setMessages([]);

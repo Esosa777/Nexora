@@ -342,7 +342,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         } 
       });
 
-      // Use high-definition Opus codec if supported
       let options = { mimeType: 'audio/webm;codecs=opus' };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         options = { mimeType: 'audio/ogg;codecs=opus' };
@@ -588,6 +587,8 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
             <input
               type="text"
+              name="chat-message-input"
+              autoComplete="off"
               value={newMessage}
               onChange={handleInputChange}
               placeholder={uploading ? "Uploading media..." : "Type a message or @username..."}

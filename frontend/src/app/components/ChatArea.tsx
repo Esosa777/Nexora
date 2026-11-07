@@ -317,9 +317,8 @@ export default function ChatArea({ channelId }: { channelId: string }) {
               const avatarUrl = msg.profiles?.avatar_url;
               const isEditing = editingId === msg.id;
 
-              // Fixed edited check: requires updated_at to be at least 3 seconds newer than created_at
-              const isEdited = msg.updated_at && msg.created_at && 
-                new Date(msg.updated_at).getTime() - new Date(msg.created_at).getTime() > 3000;
+              // Only show (edited) if updated_at is populated and different from created_at
+              const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
 
               return (
                 <div 

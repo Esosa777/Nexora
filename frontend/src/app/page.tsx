@@ -32,21 +32,21 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-950 relative">
-      {/* Top bar user controls */}
-      <div className="absolute top-3 right-4 z-10 flex items-center gap-3 bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs text-white">
+    <div className="flex h-screen bg-gray-950 relative overflow-hidden">
+      {/* Top bar user controls - Fixed with z-50 and pointer-events-auto */}
+      <div className="absolute top-3 right-4 z-50 pointer-events-auto flex items-center gap-3 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-gray-800 text-xs text-white shadow-lg">
         {user ? (
           <>
             <span className="text-gray-300">{user.email}</span>
             <button 
               onClick={() => setShowProfileModal(true)}
-              className="bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded font-medium transition border border-gray-700"
+              className="bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded font-medium transition border border-gray-700 cursor-pointer"
             >
               Profile
             </button>
             <button 
               onClick={handleSignOut}
-              className="bg-red-600/80 hover:bg-red-600 px-2 py-1 rounded font-medium transition"
+              className="bg-red-600/80 hover:bg-red-600 px-2 py-1 rounded font-medium transition cursor-pointer"
             >
               Log Out
             </button>
@@ -54,7 +54,7 @@ export default function Home() {
         ) : (
           <button 
             onClick={() => setShowAuthModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded font-medium transition"
+            className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded font-medium transition cursor-pointer"
           >
             Log In / Sign Up
           </button>

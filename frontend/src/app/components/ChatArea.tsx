@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
 
-export default function ChatArea({ channelId }: { channelId: string }) {
+export default function ChatArea({ channelId, customBackground }: { channelId: string; customBackground?: string }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -9,15 +9,24 @@ export default function ChatArea({ channelId }: { channelId: string }) {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Edit message state
+  // Advanced chat states
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null); // For message context menu
+  const [replyingTo, setReplyingTo] = useState<any | null>(null); // Quoted message for replying
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  
+  // Media / File Upload states
+  const [uploading, setUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Subtle pop sound effect using Web Audio API
+  // Subtle pop sound effect
   const playPopSound = () => {
     try {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -34,34 +43,27 @@ export default function ChatArea({ channelId }: { channelId: string }) {
       gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.08);
       osc.start();
       osc.stop(ctx.currentTime + 0.08);
-    } catch (e) {
-      // Ignore audio policy blocks before user interaction
-    }
+    } catch (e) {}
   };
 
-  // Format timestamp helper
   const formatTime = (dateString: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Helper to scroll to bottom smoothly
   const scrollToBottom = (smooth = true) => {
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
     setUnreadCount(0);
     setShowScrollButton(false);
   };
 
-  // Track scroll position to show/hide the jump-to-bottom button
   const handleScroll = () => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
     const isFarFromBottom = scrollHeight - scrollTop - clientHeight > 150;
     setShowScrollButton(isFarFromBottom);
-    if (!isFarFromBottom) {
-      setUnreadCount(0);
-    }
+    if (!isFarFromBottom) setUnreadCount(0);
   };
 
   // 1. Track logged-in user
@@ -77,7 +79,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch messages & subscribe to database changes
+  // 2. Fetch messages & subscribe
   useEffect(() => {
     if (!channelId) {
       setMessages([]);
@@ -95,6 +97,9 @@ export default function ChatArea({ channelId }: { channelId: string }) {
           created_at,
           updated_at,
           user_id,
+          media_url,
+          media_type,
+          reply_to_id,
           profiles:user_id ( username, avatar_url )
         `)
         .eq('channel_id', channelId)
@@ -177,69 +182,10 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     };
   }, [channelId, currentUser]);
 
-  // 3. Typing Broadcast channel effect
-  useEffect(() => {
-    if (!channelId || !currentUser) return;
-
-    const typingChannel = supabase.channel(`typing:${channelId}`);
-
-    typingChannel
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        const { userId, username, isTyping } = payload.payload;
-        if (userId === currentUser.id) return;
-
-        setTypingUsers((prev) => {
-          if (isTyping) {
-            return prev.includes(username) ? prev : [...prev, username];
-          } else {
-            return prev.filter((u) => u !== username);
-          }
-        });
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(typingChannel);
-    };
-  }, [channelId, currentUser]);
-
-  // 4. Handle input change & broadcast typing status
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setNewMessage(e.target.value);
-
-    if (!channelId || !currentUser) return;
-
-    const typingChannel = supabase.channel(`typing:${channelId}`);
-    
-    typingChannel.send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: {
-        userId: currentUser.id,
-        username: currentUser.email?.split('@')[0] || 'Someone',
-        isTyping: true,
-      },
-    });
-
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-
-    typingTimeoutRef.current = setTimeout(() => {
-      typingChannel.send({
-        type: 'broadcast',
-        event: 'typing',
-        payload: {
-          userId: currentUser.id,
-          username: currentUser.email?.split('@')[0] || 'Someone',
-          isTyping: false,
-        },
-      });
-    }, 2000);
-  };
-
-  // 5. Handle sending messages
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !channelId) return;
+  // 3. Handle sending text/reply message
+  const handleSendMessage = async (e: React.FormEvent, mediaUrl?: string, mediaType?: string) => {
+    e?.preventDefault();
+    if ((!newMessage.trim() && !mediaUrl) || !channelId) return;
 
     playPopSound();
 
@@ -248,6 +194,9 @@ export default function ChatArea({ channelId }: { channelId: string }) {
         channel_id: channelId,
         content: newMessage,
         user_id: currentUser?.id ?? null,
+        media_url: mediaUrl || null,
+        media_type: mediaType || null,
+        reply_to_id: replyingTo?.id || null,
       }
     ]);
 
@@ -255,55 +204,106 @@ export default function ChatArea({ channelId }: { channelId: string }) {
       console.error('Error sending message:', error);
     } else {
       setNewMessage('');
+      setReplyingTo(null);
       scrollToBottom(true);
     }
   };
 
-  // 6. Handle deleting messages
-  const handleDeleteMessage = async (messageId: string) => {
-    const { error } = await supabase
-      .from('messages')
-      .delete()
-      .eq('id', messageId);
+  // 4. Handle file uploads (Images, documents)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    if (error) {
-      console.error('Error deleting message:', error);
-    } else {
-      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+    setUploading(true);
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36.substring(2))}.${fileExt}`;
+    const filePath = `${channelId}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage.from('chat-media').upload(filePath, file);
+    
+    if (uploadError) {
+      console.error('Error uploading file:', uploadError);
+      setUploading(false);
+      return;
+    }
+
+    const { data } = supabase.storage.from('chat-media').getPublicUrl(filePath);
+    const mediaType = file.type.startsWith('image/') ? 'image' : 'file';
+
+    await handleSendMessage({} as any, data.publicUrl, mediaType);
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // 5. Voice Note Recording Handler
+  const startRecording = async () => {
+    audioChunksRef.current = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const fileName = `voice_${Math.random().toString(36).substring(2)}.webm`;
+        const filePath = `${channelId}/${fileName}`;
+
+        setUploading(true);
+        const { error } = await supabase.storage.from('chat-media').upload(filePath, audioBlob);
+        if (!error) {
+          const { data } = supabase.storage.from('chat-media').getPublicUrl(filePath);
+          await handleSendMessage({} as any, data.publicUrl, 'audio');
+        }
+        setUploading(false);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone access denied or error:', err);
     }
   };
 
-  // 7. Handle editing messages
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  // 6. Delete message
+  const handleDeleteMessage = async (messageId: string) => {
+    await supabase.from('messages').delete().eq('id', messageId);
+    setActiveMenuId(null);
+  };
+
+  // 7. Save edited message
   const handleSaveEdit = async (messageId: string) => {
     if (!editContent.trim()) return;
-
-    const { error } = await supabase
-      .from('messages')
-      .update({ content: editContent, updated_at: new Date().toISOString() })
-      .eq('id', messageId);
-
-    if (error) {
-      console.error('Error updating message:', error);
-    } else {
-      setMessages((prev) =>
-        prev.map((msg) => 
-          msg.id === messageId 
-            ? { ...msg, content: editContent, updated_at: new Date().toISOString() } 
-            : msg
-        )
-      );
-      setEditingId(null);
-      setEditContent('');
-    }
+    await supabase.from('messages').update({ content: editContent, updated_at: new Date().toISOString() }).eq('id', messageId);
+    setEditingId(null);
+    setEditContent('');
+    setActiveMenuId(null);
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gray-950 text-white relative">
+    <div 
+      className="flex-1 flex flex-col h-full text-white relative bg-cover bg-center"
+      style={{ backgroundImage: customBackground ? `url(${customBackground})` : undefined }}
+    >
+      {/* Fallback dark overlay if background image is active, or solid dark */}
+      <div className={`absolute inset-0 ${customBackground ? 'bg-black/60' : 'bg-gray-950'} z-0 pointer-events-none`} />
+
       {/* Messages Feed Container */}
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 p-4 overflow-y-auto space-y-4 relative"
+        className="flex-1 p-4 overflow-y-auto space-y-4 relative z-10"
       >
         {!channelId ? (
           <div className="flex items-center justify-center h-full text-gray-500">
@@ -316,99 +316,102 @@ export default function ChatArea({ channelId }: { channelId: string }) {
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
               const isEditing = editingId === msg.id;
-
-              // Only show (edited) if updated_at is populated and different from created_at
               const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
+              const isMenuOpen = activeMenuId === msg.id;
+              const repliedToMsg = msg.reply_to_id ? messages.find(m => m.id === msg.reply_to_id) : null;
 
               return (
                 <div 
                   key={msg.id} 
-                  className={`flex flex-col group ${isMe ? 'items-end' : 'items-start'}`}
+                  onContextMenu={(e) => { e.preventDefault(); setActiveMenuId(isMenuOpen ? null : msg.id); }}
+                  className={`flex flex-col relative group ${isMe ? 'items-end' : 'items-start'}`}
                 >
-                  {/* Sender Avatar & Username Header */}
+                  {/* Sender Header */}
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
                       {avatarUrl ? (
                         <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-[10px] text-gray-300 font-bold">
-                          {displayName[0].toUpperCase()}
-                        </span>
+                        <span className="text-[10px] text-gray-300 font-bold">{displayName[0].toUpperCase()}</span>
                       )}
                     </div>
-                    <span className="text-xs text-gray-400 font-medium">
-                      {displayName}
-                    </span>
+                    <span className="text-xs text-gray-400 font-medium">{displayName}</span>
+                  </div>
 
-                    {/* Edit/Delete Actions for Own Messages */}
-                    {isMe && !isEditing && (
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 ml-2 text-[10px] text-gray-400">
-                        <button 
-                          onClick={() => { setEditingId(msg.id); setEditContent(msg.content); }}
-                          className="hover:text-blue-400 underline"
-                        >
-                          Edit
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteMessage(msg.id)}
-                          className="hover:text-red-400 underline"
-                        >
-                          Delete
-                        </button>
+                  {/* Message Bubble container with Context Menu Trigger */}
+                  <div className="relative">
+                    {/* WhatsApp-Style Popup Menu (Right Click / Long Press) */}
+                    {isMenuOpen && (
+                      <div className={`absolute top-0 ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bg-gray-900 border border-gray-700 shadow-xl rounded-xl py-1 z-30 w-36 text-xs flex flex-col`}>
+                        <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Reply</button>
+                        <button onClick={() => { navigator.clipboard.writeText(msg.content); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Copy</button>
+                        {isMe && (
+                          <>
+                            <button onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Edit</button>
+                            <button onClick={() => handleDeleteMessage(msg.id)} className="px-3 py-2 text-left text-red-400 hover:bg-gray-800 transition">Delete</button>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Content / Edit Box */}
+                    {isEditing ? (
+                      <div className="flex flex-col gap-2 max-w-md w-full bg-gray-900 p-2 rounded-xl">
+                        <input
+                          type="text"
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="bg-gray-800 text-white px-3 py-2 rounded-lg text-sm focus:outline-none"
+                        />
+                        <div className="flex gap-2 justify-end text-xs">
+                          <button onClick={() => setEditingId(null)} className="px-2 py-1 bg-gray-700 rounded text-gray-300">Cancel</button>
+                          <button onClick={() => handleSaveEdit(msg.id)} className="px-2 py-1 bg-blue-600 rounded text-white">Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div 
+                        className={`px-4 py-2.5 rounded-2xl max-w-md shadow-md flex flex-col gap-1 ${
+                          isMe 
+                            ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-br-sm' 
+                            : 'bg-gray-800/90 border border-gray-700/60 text-gray-100 rounded-bl-sm'
+                        }`}
+                      >
+                        {/* Quoted Reply Preview Inside Bubble */}
+                        {repliedToMsg && (
+                          <div className="bg-black/30 border-l-2 border-blue-400 px-2 py-1 rounded text-[11px] mb-1 opacity-90 truncate">
+                            <span className="font-semibold block">{repliedToMsg.user_id === currentUser?.id ? 'You' : 'Someone'}</span>
+                            {repliedToMsg.content || 'Media attachment'}
+                          </div>
+                        )}
+
+                        {/* Media Render (Image / Voice Note / File) */}
+                        {msg.media_type === 'image' && (
+                          <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover mt-1" />
+                        )}
+                        {msg.media_type === 'audio' && (
+                          <audio controls src={msg.media_url} className="h-8 max-w-[200px] mt-1" />
+                        )}
+                        {msg.media_type === 'file' && (
+                          <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-blue-200 text-xs mt-1 block">📎 Download Attachment</a>
+                        )}
+
+                        {msg.content && <p className="text-sm leading-relaxed break-words">{msg.content}</p>}
+                        
+                        {/* Timestamp & Edited tag */}
+                        <div className={`flex items-center gap-1.5 text-[10px] select-none ${isMe ? 'text-blue-200 justify-end' : 'text-gray-400 justify-start'}`}>
+                          {isEdited && <span>(edited)</span>}
+                          <span>{formatTime(msg.created_at)}</span>
+                        </div>
                       </div>
                     )}
                   </div>
-
-                  {/* Message Bubble or Edit Input */}
-                  {isEditing ? (
-                    <div className="flex flex-col gap-2 max-w-md w-full">
-                      <input
-                        type="text"
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        className="bg-gray-800 text-white px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-inner"
-                      />
-                      <div className="flex gap-2 justify-end text-xs">
-                        <button 
-                          onClick={() => setEditingId(null)} 
-                          className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-300"
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          onClick={() => handleSaveEdit(msg.id)} 
-                          className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white"
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div 
-                      className={`px-4 py-2.5 rounded-2xl max-w-md shadow-md flex flex-col gap-1 ${
-                        isMe 
-                          ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-br-sm' 
-                          : 'bg-gray-800/90 border border-gray-700/60 text-gray-100 rounded-bl-sm'
-                      }`}
-                    >
-                      <p className="text-sm leading-relaxed break-words">{msg.content}</p>
-                      
-                      {/* Timestamp & Edited tag */}
-                      <div className={`flex items-center gap-1.5 text-[10px] select-none ${isMe ? 'text-blue-200 justify-end' : 'text-gray-400 justify-start'}`}>
-                        {isEdited && <span>(edited)</span>}
-                        <span>{formatTime(msg.created_at)}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               );
             })}
-            {/* Scroll Anchor */}
             <div ref={messagesEndRef} />
           </>
         )}
 
-        {/* WhatsApp-Style Jump to Bottom Button */}
         {showScrollButton && (
           <button 
             onClick={() => scrollToBottom(true)}
@@ -419,27 +422,69 @@ export default function ChatArea({ channelId }: { channelId: string }) {
         )}
       </div>
 
-      {/* Typing Indicator Display */}
+      {/* Typing Indicator */}
       {typingUsers.length > 0 && (
-        <div className="px-4 py-1 text-xs text-gray-400 italic bg-gray-900/50">
+        <div className="px-4 py-1 text-xs text-gray-400 italic bg-gray-900/50 z-10">
           {typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
         </div>
       )}
 
-      {/* Message Input Form */}
+      {/* Reply Banner (Above input) */}
+      {replyingTo && (
+        <div className="px-4 py-2 bg-gray-900/90 border-t border-gray-800 flex justify-between items-center text-xs z-10">
+          <div>
+            <span className="text-blue-400 font-semibold">Replying to message:</span>
+            <p className="text-gray-300 truncate max-w-md">{replyingTo.content || 'Media attachment'}</p>
+          </div>
+          <button onClick={() => setReplyingTo(null)} className="text-gray-400 hover:text-white font-bold px-2">✕</button>
+        </div>
+      )}
+
+      {/* Message Input & Attachment Controls */}
       {channelId && (
-        <form onSubmit={handleSendMessage} className="p-4 bg-gray-900 border-t border-gray-800 flex gap-2">
+        <form onSubmit={handleSendMessage} className="p-4 bg-gray-900/95 border-t border-gray-800 flex items-center gap-2 z-10">
+          {/* Hidden File Input */}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            className="hidden" 
+          />
+          <button 
+            type="button" 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="p-2 text-gray-400 hover:text-white rounded-lg transition"
+            title="Attach file or image"
+          >
+            📎
+          </button>
+
           <input
             type="text"
             value={newMessage}
-            onChange={handleInputChange}
-            placeholder={currentUser ? "Type a message..." : "Sign in to send messages"}
-            disabled={!currentUser}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder={uploading ? "Uploading media..." : "Type a message..."}
+            disabled={!currentUser || uploading}
             className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner"
           />
+
+          {/* Voice Note Record Button */}
+          <button 
+            type="button"
+            onMouseDown={startRecording}
+            onMouseUp={stopRecording}
+            onTouchStart={startRecording}
+            onTouchEnd={stopRecording}
+            className={`p-2 rounded-xl transition ${isRecording ? 'bg-red-600 animate-pulse text-white' : 'text-gray-400 hover:text-white'}`}
+            title="Hold to record voice note"
+          >
+            🎤
+          </button>
+
           <button 
             type="submit"
-            disabled={!currentUser}
+            disabled={!currentUser || uploading || (!newMessage.trim() && !isRecording)}
             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow"
           >
             Send

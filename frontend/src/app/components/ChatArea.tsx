@@ -9,6 +9,10 @@ export default function ChatArea({ channelId }: { channelId: string }) {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Edit message state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -44,7 +48,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch messages & subscribe to database inserts
+  // 2. Fetch messages & subscribe to database inserts/updates/deletes
   useEffect(() => {
     if (!channelId) {
       setMessages([]);
@@ -70,7 +74,6 @@ export default function ChatArea({ channelId }: { channelId: string }) {
         console.error('Error fetching messages:', error);
       } else {
         setMessages(data || []);
-        // Scroll to bottom instantly on initial load
         setTimeout(() => scrollToBottom(false), 50);
       }
     }
@@ -82,45 +85,51 @@ export default function ChatArea({ channelId }: { channelId: string }) {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'messages',
           filter: `channel_id=eq.${channelId}`,
         },
         async (payload) => {
-          let senderProfile = null;
-          if (payload.new.user_id) {
-            const { data } = await supabase
-              .from('profiles')
-              .select('username, avatar_url')
-              .eq('id', payload.new.user_id)
-              .single();
-            senderProfile = data;
-          }
-
-          // Explicitly typed as 'any' to satisfy TypeScript build checks
-          const fullMessage: any = {
-            ...payload.new,
-            profiles: senderProfile,
-          };
-          
-          setMessages((prev) => {
-            if ((prev as any[]).some((msg: any) => msg.id === fullMessage.id)) return prev;
-            const updatedMessages = [...prev, fullMessage];
-
-            // Smart scroll: auto-scroll if it's your message or you're already at the bottom
-            const container = scrollContainerRef.current;
-            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight < 150) : true;
-            
-            if (isNearBottom || fullMessage.user_id === currentUser?.id) {
-              setTimeout(() => scrollToBottom(true), 50);
-            } else {
-              setUnreadCount((count) => count + 1);
-              setShowScrollButton(true);
+          if (payload.eventType === 'INSERT') {
+            let senderProfile = null;
+            if (payload.new.user_id) {
+              const { data } = await supabase
+                .from('profiles')
+                .select('username, avatar_url')
+                .eq('id', payload.new.user_id)
+                .single();
+              senderProfile = data;
             }
 
-            return updatedMessages;
-          });
+            const fullMessage: any = {
+              ...payload.new,
+              profiles: senderProfile,
+            };
+            
+            setMessages((prev) => {
+              if ((prev as any[]).some((msg: any) => msg.id === fullMessage.id)) return prev;
+              const updatedMessages = [...prev, fullMessage];
+
+              const container = scrollContainerRef.current;
+              const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight < 150) : true;
+              
+              if (isNearBottom || fullMessage.user_id === currentUser?.id) {
+                setTimeout(() => scrollToBottom(true), 50);
+              } else {
+                setUnreadCount((count) => count + 1);
+                setShowScrollButton(true);
+              }
+
+              return updatedMessages;
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            setMessages((prev) =>
+              prev.map((msg) => (msg.id === payload.new.id ? { ...msg, content: payload.new.content } : msg))
+            );
+          } else if (payload.eventType === 'DELETE') {
+            setMessages((prev) => prev.filter((msg) => msg.id === payload.old.id));
+          }
         }
       )
       .subscribe();
@@ -210,6 +219,40 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     }
   };
 
+  // 6. Handle deleting messages
+  const handleDeleteMessage = async (messageId: string) => {
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .eq('id', messageId);
+
+    if (error) {
+      console.error('Error deleting message:', error);
+    } else {
+      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+    }
+  };
+
+  // 7. Handle editing messages
+  const handleSaveEdit = async (messageId: string) => {
+    if (!editContent.trim()) return;
+
+    const { error } = await supabase
+      .from('messages')
+      .update({ content: editContent })
+      .eq('id', messageId);
+
+    if (error) {
+      console.error('Error updating message:', error);
+    } else {
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === messageId ? { ...msg, content: editContent } : msg))
+      );
+      setEditingId(null);
+      setEditContent('');
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-gray-950 text-white relative">
       {/* Messages Feed Container */}
@@ -228,11 +271,12 @@ export default function ChatArea({ channelId }: { channelId: string }) {
               const isMe = currentUser && msg.user_id === currentUser.id;
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
+              const isEditing = editingId === msg.id;
 
               return (
                 <div 
                   key={msg.id} 
-                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                  className={`flex flex-col group ${isMe ? 'items-end' : 'items-start'}`}
                 >
                   {/* Sender Avatar & Username Header */}
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -248,18 +292,61 @@ export default function ChatArea({ channelId }: { channelId: string }) {
                     <span className="text-xs text-gray-400 font-medium">
                       {displayName}
                     </span>
+
+                    {/* Edit/Delete Actions for Own Messages */}
+                    {isMe && !isEditing && (
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 ml-2 text-[10px] text-gray-400">
+                        <button 
+                          onClick={() => { setEditingId(msg.id); setEditContent(msg.content); }}
+                          className="hover:text-blue-400 underline"
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteMessage(msg.id)}
+                          className="hover:text-red-400 underline"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Message Bubble */}
-                  <div 
-                    className={`p-3 rounded-xl max-w-md ${
-                      isMe 
-                        ? 'bg-blue-600 text-white rounded-br-none' 
-                        : 'bg-gray-800 text-gray-200 rounded-bl-none'
-                    }`}
-                  >
-                    <p className="text-sm">{msg.content}</p>
-                  </div>
+                  {/* Message Bubble or Edit Input */}
+                  {isEditing ? (
+                    <div className="flex flex-col gap-2 max-w-md w-full">
+                      <input
+                        type="text"
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="bg-gray-800 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <div className="flex gap-2 justify-end text-xs">
+                        <button 
+                          onClick={() => setEditingId(null)} 
+                          className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-300"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          onClick={() => handleSaveEdit(msg.id)} 
+                          className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div 
+                      className={`p-3 rounded-xl max-w-md ${
+                        isMe 
+                          ? 'bg-blue-600 text-white rounded-br-none' 
+                          : 'bg-gray-800 text-gray-200 rounded-bl-none'
+                      }`}
+                    >
+                      <p className="text-sm">{msg.content}</p>
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -624,7 +624,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
             <input
               type="text"
               name="chat-message-input"
-              autoComplete="off"
+              autoComplete="new-password"
               value={newMessage}
               onChange={handleInputChange}
               placeholder={uploading ? "Uploading media..." : "Type a message or @username..."}

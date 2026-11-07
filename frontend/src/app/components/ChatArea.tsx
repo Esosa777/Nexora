@@ -273,7 +273,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
           media_url,
           media_type,
           reply_to_id,
-          profiles:user_id ( username, avatar_url, role )
+          profiles:user_id!messages_user_id_fkey ( username, avatar_url, role )
         `)
         .eq('channel_id', channelId)
         .order('created_at', { ascending: true });

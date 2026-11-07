@@ -10,8 +10,8 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Advanced chat states
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null); // For message context menu
-  const [replyingTo, setReplyingTo] = useState<any | null>(null); // Quoted message for replying
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<any | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   
@@ -184,7 +184,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
   // 3. Handle sending text/reply message
   const handleSendMessage = async (e: React.FormEvent, mediaUrl?: string, mediaType?: string) => {
-    e?.preventDefault();
+    e?.preventDefault?.();
     if ((!newMessage.trim() && !mediaUrl) || !channelId) return;
 
     playPopSound();
@@ -202,6 +202,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
     if (error) {
       console.error('Error sending message:', error);
+      alert('Failed to send message: ' + error.message);
     } else {
       setNewMessage('');
       setReplyingTo(null);
@@ -209,7 +210,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     }
   };
 
-  // 4. Handle file uploads (Images, documents)
+  // 4. Handle file uploads with explicit error alerting
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -219,10 +220,12 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
     const filePath = `${channelId}/${fileName}`;
 
+    // Note: Ensure your Supabase storage bucket is named 'chat-media'
     const { error: uploadError } = await supabase.storage.from('chat-media').upload(filePath, file);
     
     if (uploadError) {
       console.error('Error uploading file:', uploadError);
+      alert('Upload failed! Make sure your Supabase Storage bucket is named "chat-media" and policies are set. Details: ' + uploadError.message);
       setUploading(false);
       return;
     }
@@ -254,7 +257,9 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
         setUploading(true);
         const { error } = await supabase.storage.from('chat-media').upload(filePath, audioBlob);
-        if (!error) {
+        if (error) {
+          alert('Voice note upload failed: ' + error.message);
+        } else {
           const { data } = supabase.storage.from('chat-media').getPublicUrl(filePath);
           await handleSendMessage({} as any, data.publicUrl, 'audio');
         }
@@ -266,6 +271,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
       setIsRecording(true);
     } catch (err) {
       console.error('Microphone access denied or error:', err);
+      alert('Could not access microphone.');
     }
   };
 
@@ -276,13 +282,11 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     }
   };
 
-  // 6. Delete message
   const handleDeleteMessage = async (messageId: string) => {
     await supabase.from('messages').delete().eq('id', messageId);
     setActiveMenuId(null);
   };
 
-  // 7. Save edited message
   const handleSaveEdit = async (messageId: string) => {
     if (!editContent.trim()) return;
     await supabase.from('messages').update({ content: editContent, updated_at: new Date().toISOString() }).eq('id', messageId);
@@ -325,7 +329,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                   onContextMenu={(e) => { e.preventDefault(); setActiveMenuId(isMenuOpen ? null : msg.id); }}
                   className={`flex flex-col relative group ${isMe ? 'items-end' : 'items-start'}`}
                 >
-                  {/* Sender Header */}
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
                       {avatarUrl ? (
@@ -337,9 +340,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                     <span className="text-xs text-gray-400 font-medium">{displayName}</span>
                   </div>
 
-                  {/* Message Bubble container with Context Menu Trigger */}
                   <div className="relative">
-                    {/* WhatsApp-Style Popup Menu (Right Click / Long Press) */}
                     {isMenuOpen && (
                       <div className={`absolute top-0 ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bg-gray-900 border border-gray-700 shadow-xl rounded-xl py-1 z-30 w-36 text-xs flex flex-col`}>
                         <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Reply</button>
@@ -353,7 +354,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                       </div>
                     )}
 
-                    {/* Content / Edit Box */}
                     {isEditing ? (
                       <div className="flex flex-col gap-2 max-w-md w-full bg-gray-900 p-2 rounded-xl">
                         <input
@@ -375,7 +375,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                             : 'bg-gray-800/90 border border-gray-700/60 text-gray-100 rounded-bl-sm'
                         }`}
                       >
-                        {/* Quoted Reply Preview Inside Bubble */}
                         {repliedToMsg && (
                           <div className="bg-black/30 border-l-2 border-blue-400 px-2 py-1 rounded text-[11px] mb-1 opacity-90 truncate">
                             <span className="font-semibold block">{repliedToMsg.user_id === currentUser?.id ? 'You' : 'Someone'}</span>
@@ -383,7 +382,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                           </div>
                         )}
 
-                        {/* Media Render (Image / Voice Note / File) */}
                         {msg.media_type === 'image' && (
                           <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover mt-1" />
                         )}
@@ -396,7 +394,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
                         {msg.content && <p className="text-sm leading-relaxed break-words">{msg.content}</p>}
                         
-                        {/* Timestamp & Edited tag */}
                         <div className={`flex items-center gap-1.5 text-[10px] select-none ${isMe ? 'text-blue-200 justify-end' : 'text-gray-400 justify-start'}`}>
                           {isEdited && <span>(edited)</span>}
                           <span>{formatTime(msg.created_at)}</span>
@@ -421,14 +418,12 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         )}
       </div>
 
-      {/* Typing Indicator */}
       {typingUsers.length > 0 && (
         <div className="px-4 py-1 text-xs text-gray-400 italic bg-gray-900/50 z-10">
           {typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
         </div>
       )}
 
-      {/* Reply Banner */}
       {replyingTo && (
         <div className="px-4 py-2 bg-gray-900/90 border-t border-gray-800 flex justify-between items-center text-xs z-10">
           <div>
@@ -439,23 +434,27 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         </div>
       )}
 
-      {/* Message Input & Attachment Controls */}
+      {/* Message Input & Legible SVG Attachment Controls */}
       {channelId && (
-        <form onSubmit={handleSendMessage} className="p-4 bg-gray-900/95 border-t border-gray-800 flex items-center gap-2 z-10">
+        <form onSubmit={(e) => handleSendMessage(e)} className="p-4 bg-gray-900/95 border-t border-gray-800 flex items-center gap-3 z-10">
           <input 
             type="file" 
             ref={fileInputRef} 
             onChange={handleFileUpload} 
             className="hidden" 
           />
+          
+          {/* Legible File/Image Attach Button */}
           <button 
             type="button" 
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="p-2 text-gray-400 hover:text-white rounded-lg transition"
+            className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl transition flex items-center justify-center border border-gray-700 shadow-sm cursor-pointer"
             title="Attach file or image"
           >
-            📎
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
           </button>
 
           <input
@@ -464,25 +463,32 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder={uploading ? "Uploading media..." : "Type a message..."}
             disabled={!currentUser || uploading}
-            className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner"
+            className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
           />
 
+          {/* Legible Voice Note Button */}
           <button 
             type="button"
             onMouseDown={startRecording}
             onMouseUp={stopRecording}
             onTouchStart={startRecording}
             onTouchEnd={stopRecording}
-            className={`p-2 rounded-xl transition ${isRecording ? 'bg-red-600 animate-pulse text-white' : 'text-gray-400 hover:text-white'}`}
+            className={`p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm ${
+              isRecording 
+                ? 'bg-red-600 border-red-500 animate-pulse text-white' 
+                : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700'
+            }`}
             title="Hold to record voice note"
           >
-            🎤
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+            </svg>
           </button>
 
           <button 
             type="submit"
             disabled={!currentUser || uploading || (!newMessage.trim() && !isRecording)}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow"
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow text-white"
           >
             Send
           </button>

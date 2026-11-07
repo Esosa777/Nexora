@@ -94,10 +94,12 @@ export default function CreateChannelModal({ isOpen, onClose, onChannelCreated }
         throw new Error("Channel created, but failed to assign creator role: " + memberError.message);
       }
 
-      // Success!
+      // Success! Reset form state
       setName('');
       setDescription('');
       setAvatarUrl('');
+
+      // Trigger parent callback to refresh channels and select the new room
       onChannelCreated(channelData.id);
       onClose();
     } catch (err: any) {

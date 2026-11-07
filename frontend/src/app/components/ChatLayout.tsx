@@ -4,11 +4,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabase'; // Adjust this import path if needed based on your folder structure
 
 export default function ChatLayout() {
-  const [chats, setChats] = useState([]);
-  const [activeId, setActiveId] = useState(null);
+  const [chats, setChats] = useState<any[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   
-  const feedRef = useRef(null);
+  const feedRef = useRef<HTMLDivElement>(null);
 
   // 1. Fetch channels from Supabase when the component first loads
   useEffect(() => {
@@ -61,26 +61,26 @@ export default function ChatLayout() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-900 text-white">
+    <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
       {/* Sidebar for Conversations */}
-      <div className="w-1/4 border-r border-gray-800 p-4 flex flex-col min-w-[240px]">
+      <div className="w-64 border-r border-gray-800 p-4 flex flex-col bg-gray-900">
         <h2 className="text-xl font-bold mb-4 text-indigo-400">Nexora Chats</h2>
-        <div className="space-y-2 overflow-y-auto flex-1">
+        <div className="space-y-2 overflow-y-auto flex-1 pr-1">
           {chats.map((chat) => (
             <div
               key={chat.id}
               onClick={() => setActiveId(chat.id)}
-              className={`p-3 rounded-lg cursor-pointer transition ${
+              className={`p-3 rounded-xl cursor-pointer transition ${
                 chat.id === activeId
-                  ? 'bg-gray-800 ring-1 ring-indigo-500'
-                  : 'bg-gray-800/50 hover:bg-gray-700'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'bg-gray-800/50 hover:bg-gray-800 text-gray-300'
               }`}
             >
-              <p className="font-semibold">{chat.name}</p>
-              <p className="text-sm text-gray-400 truncate">
+              <p className="font-semibold text-sm">{chat.name}</p>
+              <p className={`text-xs truncate ${chat.id === activeId ? 'text-indigo-100' : 'text-gray-400'}`}>
                 {chat.messages.length > 0
                   ? chat.messages[chat.messages.length - 1].text
-                  : 'No messages yet'}
+                  : chat.description || 'No messages yet'}
               </p>
             </div>
           ))}
@@ -90,21 +90,26 @@ export default function ChatLayout() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col bg-gray-950">
         {/* Chat Header */}
-        <div className="p-4 border-b border-gray-800 bg-gray-900">
-          <h3 className="font-semibold text-lg">{activeChat?.name || 'Select a channel'}</h3>
+        <div className="p-4 border-b border-gray-800 bg-gray-900/90 backdrop-blur-sm">
+          <h3 className="font-semibold text-base">{activeChat?.name || 'Select a channel'}</h3>
+          {activeChat?.description && (
+            <p className="text-xs text-gray-400 truncate">{activeChat.description}</p>
+          )}
         </div>
 
         {/* Message Feed */}
         <div ref={feedRef} className="flex-1 p-4 overflow-y-auto space-y-4">
-          {activeChat?.messages.length === 0 && (
-            <p className="text-gray-500 text-center mt-10">No messages yet. Start the conversation.</p>
+          {(!activeChat || activeChat.messages.length === 0) && (
+            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+              No messages yet. Start the conversation.
+            </div>
           )}
-          {activeChat?.messages.map((msg) => (
-            <div key={msg.id} className="flex flex-col">
-              <span className="text-xs text-gray-500 mb-1">{msg.user}</span>
+          {activeChat?.messages.map((msg: any) => (
+            <div key={msg.id} className={`flex flex-col ${msg.user === 'You' ? 'items-end' : 'items-start'}`}>
+              <span className="text-[10px] text-gray-500 mb-1 px-1">{msg.user}</span>
               <div
-                className={`p-3 rounded-lg max-w-md w-fit ${
-                  msg.user === 'You' ? 'bg-indigo-600 text-white self-end' : 'bg-gray-800 text-gray-200'
+                className={`p-3 rounded-2xl max-w-md w-fit shadow-md text-sm ${
+                  msg.user === 'You' ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-gray-800 text-gray-200 rounded-bl-sm border border-gray-700'
                 }`}
               >
                 {msg.text}
@@ -114,18 +119,18 @@ export default function ChatLayout() {
         </div>
 
         {/* Message Input Bar */}
-        <div className="p-4 border-t border-gray-800 bg-gray-900 flex gap-2">
+        <div className="p-4 border-t border-gray-800 bg-gray-900/95 flex gap-2">
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
             placeholder={`Message ${activeChat?.name || 'channel'}...`}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:border-indigo-500 text-white"
+            className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-600 text-sm text-white"
           />
           <button
             onClick={handleSendMessage}
-            className="bg-indigo-600 px-6 py-2 rounded-lg font-semibold hover:bg-indigo-500 transition text-white"
+            className="bg-indigo-600 hover:bg-indigo-700 px-6 py-2.5 rounded-xl font-medium transition text-sm shadow text-white cursor-pointer"
           >
             Send
           </button>

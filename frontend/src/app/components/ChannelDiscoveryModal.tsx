@@ -1,142 +1,191 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+// src/components/ChannelDiscoveryModal.tsx
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 
-interface ChannelDiscoveryModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onJoinedChannel: (channelId: string) => void;
+interface Channel {
+  id: string;
+  name: string;
+  description: string;
+  avatar_url?: string;
+  member_count?: number;
+  created_at?: string;
 }
 
-export default function ChannelDiscoveryModal({ isOpen, onClose, onJoinedChannel }: ChannelDiscoveryModalProps) {
-  const [channels, setChannels] = useState<any[]>([]);
-  const [myMemberships, setMyMemberships] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
+interface ChannelDiscoveryModalProps {
+  onClose: () => void;
+  onJoined: () => void;
+}
+
+export default function ChannelDiscoveryModal({ onClose, onJoined }: ChannelDiscoveryModalProps) {
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'trending' | 'newest'>('trending');
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    fetchDiscoverableChannels();
+  }, []);
 
-    async function loadPublicChannels() {
-      setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+  const fetchDiscoverableChannels = async () => {
+    setLoading(true);
+    // Fetch channels and count their members for the FYP ranking algorithm
+    const { data, error } = await supabase
+      .from('channels')
+      .select(`
+        *,
+        channel_members(count)
+      `);
 
-      // 1. Fetch all channels
-      const { data: allChannels } = await supabase.from('channels').select('*');
-
-      // 2. Fetch current user's memberships
-      const { data: memberships } = await supabase
-        .from('channel_members')
-        .select('channel_id, status')
-        .eq('user_id', user.id);
-
-      const membershipMap: Record<string, string> = {};
-      if (memberships) {
-        memberships.forEach((m) => {
-          membershipMap[m.channel_id] = m.status; // 'active' or 'pending'
-        });
-      }
-
-      setMyMemberships(membershipMap);
-      setChannels(allChannels || []);
-      setLoading(false);
+    if (!error && data) {
+      const formatted = data.map((ch: any) => ({
+        ...ch,
+        member_count: ch.channel_members?.[0]?.count || 0
+      }));
+      setChannels(formatted);
     }
+    setLoading(false);
+  };
 
-    loadPublicChannels();
-  }, [isOpen]);
+  // Filter channels by search query and rank them (FYP Trending vs Newest)
+  const filteredChannels = channels
+    .filter(ch => 
+      ch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (ch.description && ch.description.toLowerCase().includes(searchQuery.toLowerCase()))
+    )
+    .sort((a, b) => {
+      if (sortBy === 'trending') {
+        // FYP Ranking: Highest member count first (popularity)
+        return (b.member_count || 0) - (a.member_count || 0);
+      } else {
+        // Newest channels first
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      }
+    });
 
-  if (!isOpen) return null;
-
-  const handleJoinChannel = async (channelId: string, requireApproval = false) => {
+  const handleJoin = async (channelId: string) => {
+    setNotice(null);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const status = requireApproval ? 'pending' : 'active';
-
-    const { error } = await supabase.from('channel_members').insert([
-      {
+    // Use upsert with conflict handling to gracefully manage duplicate joins
+    const { error } = await supabase
+      .from('channel_members')
+      .upsert({
         channel_id: channelId,
         user_id: user.id,
-        role: 'member',
-        status: status,
-      },
-    ]);
+        status: 'active',
+        role: 'member'
+      }, { onConflict: 'channel_id,user_id' });
 
     if (error) {
-      alert('Failed to join channel: ' + error.message);
-    } else {
-      setMyMemberships((prev) => ({ ...prev, [channelId]: status }));
-      if (!requireApproval) {
-        onJoinedChannel(channelId);
-        onClose();
+      if (error.code === '23505') {
+        setNotice("You are already a member of this channel!");
+      } else {
+        setNotice("Failed to join channel. Please try again.");
+        console.error("Join error:", error.message);
       }
+    } else {
+      onJoined();
+      onClose();
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative text-white flex flex-col max-h-[80vh]">
-        <div className="flex justify-between items-center mb-4 border-b border-gray-800 pb-3">
-          <div>
-            <h2 className="text-lg font-bold">Discover Channels</h2>
-            <p className="text-xs text-gray-400">Join communities and start chatting</p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white font-bold p-1">✕</button>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-800 w-full max-w-xl rounded-2xl p-6 text-white shadow-2xl flex flex-col max-h-[85vh]">
+        
+        {/* Modal Header */}
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Discover Channels</h2>
+          <button 
+            onClick={onClose} 
+            className="text-gray-400 hover:text-white text-2xl transition"
+          >
+            &times;
+          </button>
         </div>
 
-        {loading ? (
-          <div className="py-8 text-center text-gray-500 text-sm">Loading channels...</div>
-        ) : channels.length === 0 ? (
-          <div className="py-8 text-center text-gray-500 text-sm">No channels available yet. Create one!</div>
-        ) : (
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-            {channels.map((channel) => {
-              const membershipStatus = myMemberships[channel.id];
-
-              return (
-                <div key={channel.id} className="flex items-center justify-between bg-gray-800/60 border border-gray-800 rounded-xl p-3.5">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-blue-600/20 border border-blue-500/30 overflow-hidden flex items-center justify-center font-bold text-blue-400 shrink-0">
-                      {channel.avatar_url ? (
-                        <img src={channel.avatar_url} alt={channel.name} className="w-full h-full object-cover" />
-                      ) : (
-                        channel.name[0]?.toUpperCase() || '#'
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-white">{channel.name}</h3>
-                      <p className="text-xs text-gray-400 line-clamp-1">{channel.description || 'No description provided'}</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    {membershipStatus === 'active' ? (
-                      <button
-                        onClick={() => {
-                          onJoinedChannel(channel.id);
-                          onClose();
-                        }}
-                        className="px-4 py-1.5 bg-gray-700 text-gray-200 rounded-xl text-xs font-semibold hover:bg-gray-600 transition"
-                      >
-                        Open Chat
-                      </button>
-                    ) : membershipStatus === 'pending' ? (
-                      <span className="px-3 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold">
-                        Request Pending
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => handleJoinChannel(channel.id, false)}
-                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-md"
-                      >
-                        Join Channel
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+        {/* Notice Banner for Duplicate Join Warnings */}
+        {notice && (
+          <div className="mb-4 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-4 py-2.5 rounded-lg text-sm flex justify-between items-center">
+            <span>{notice}</span>
+            <button onClick={() => setNotice(null)} className="text-amber-400 hover:text-amber-200 text-lg">&times;</button>
           </div>
         )}
+
+        {/* Search Bar & FYP / Sort Filters */}
+        <div className="space-y-3 mb-4">
+          <input
+            type="text"
+            placeholder="Search channels by name or keyword..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-indigo-500 transition"
+          />
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSortBy('trending')}
+              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${
+                sortBy === 'trending' 
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              🔥 Trending (FYP)
+            </button>
+            <button
+              onClick={() => setSortBy('newest')}
+              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${
+                sortBy === 'newest' 
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              ✨ Newest
+            </button>
+          </div>
+        </div>
+
+        {/* Channel List Container */}
+        <div className="overflow-y-auto flex-1 space-y-3 pr-1">
+          {loading ? (
+            <div className="text-center text-gray-400 py-12 flex flex-col items-center justify-center space-y-2">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+              <p>Discovering channels...</p>
+            </div>
+          ) : filteredChannels.length === 0 ? (
+            <div className="text-center text-gray-400 py-12">
+              <p className="text-lg">No channels found</p>
+              <p className="text-sm text-gray-500 mt-1">Try searching with a different keyword or create your own channel.</p>
+            </div>
+          ) : (
+            filteredChannels.map(channel => (
+              <div 
+                key={channel.id} 
+                className="bg-gray-800/60 border border-gray-700/50 p-4 rounded-xl flex items-center justify-between hover:border-gray-600 transition"
+              >
+                <div className="pr-4">
+                  <h3 className="font-semibold text-base text-white">{channel.name}</h3>
+                  <p className="text-sm text-gray-400 line-clamp-1 mt-0.5">
+                    {channel.description || 'No description provided.'}
+                  </p>
+                  <span className="text-xs text-indigo-400 mt-2 inline-flex items-center gap-1">
+                    👥 {channel.member_count} active member{channel.member_count === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleJoin(channel.id)}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition shrink-0 shadow-md"
+                >
+                  Join
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
       </div>
     </div>
   );

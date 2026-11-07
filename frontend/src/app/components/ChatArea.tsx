@@ -216,7 +216,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
     setUploading(true);
     const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random().toString(36.substring(2))}.${fileExt}`;
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
     const filePath = `${channelId}/${fileName}`;
 
     const { error: uploadError } = await supabase.storage.from('chat-media').upload(filePath, file);
@@ -296,7 +296,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
       className="flex-1 flex flex-col h-full text-white relative bg-cover bg-center"
       style={{ backgroundImage: customBackground ? `url(${customBackground})` : undefined }}
     >
-      {/* Fallback dark overlay if background image is active, or solid dark */}
       <div className={`absolute inset-0 ${customBackground ? 'bg-black/60' : 'bg-gray-950'} z-0 pointer-events-none`} />
 
       {/* Messages Feed Container */}
@@ -429,7 +428,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         </div>
       )}
 
-      {/* Reply Banner (Above input) */}
+      {/* Reply Banner */}
       {replyingTo && (
         <div className="px-4 py-2 bg-gray-900/90 border-t border-gray-800 flex justify-between items-center text-xs z-10">
           <div>
@@ -443,7 +442,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
       {/* Message Input & Attachment Controls */}
       {channelId && (
         <form onSubmit={handleSendMessage} className="p-4 bg-gray-900/95 border-t border-gray-800 flex items-center gap-2 z-10">
-          {/* Hidden File Input */}
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -469,7 +467,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
             className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner"
           />
 
-          {/* Voice Note Record Button */}
           <button 
             type="button"
             onMouseDown={startRecording}

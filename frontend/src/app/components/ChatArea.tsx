@@ -9,7 +9,6 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
     const audio = audioRef.current;
     if (!audio) return;
 
-    // Handle WebM Infinity duration metadata glitch
     if (audio.duration === Infinity || isNaN(audio.duration)) {
       audio.currentTime = 1e101;
       audio.ontimeupdate = () => {
@@ -48,9 +47,10 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
         onEnded={handleEnded}
         className="h-8 max-w-[220px]" 
       />
-      <span className="text-[10px] text-gray-300 self-end select-none">
-        Voice Note • {duration}
-      </span>
+      <div className="flex justify-between items-center text-[10px] text-gray-300 select-none px-1">
+        <span>Voice Note • {duration}</span>
+        <a href={src} download target="_blank" rel="noreferrer" className="hover:underline text-blue-300">Download</a>
+      </div>
     </div>
   );
 }
@@ -69,6 +69,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const [editContent, setEditContent] = useState('');
   
   const [uploading, setUploading] = useState(false);
+  const [stagedFile, setStagedFile] = useState<{ url: string; type: string; name: string } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -83,6 +84,13 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    const handleClickOutside = () => setActiveMenuId(null);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const formatDuration = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -301,9 +309,12 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     setMentionSuggestions([]);
   };
 
-  const handleSendMessage = async (e: React.FormEvent, mediaUrl?: string, mediaType?: string, contentOverride?: string) => {
+  const handleSendMessage = async (e: React.FormEvent, customMediaUrl?: string, customMediaType?: string, contentOverride?: string) => {
     e?.preventDefault?.();
     const finalContent = contentOverride || newMessage;
+    const mediaUrl = customMediaUrl || stagedFile?.url || null;
+    const mediaType = customMediaType || stagedFile?.type || null;
+
     if ((!finalContent.trim() && !mediaUrl) || !channelId) return;
 
     playPopSound();
@@ -313,8 +324,8 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         channel_id: channelId,
         content: finalContent,
         user_id: currentUser?.id ?? null,
-        media_url: mediaUrl || null,
-        media_type: mediaType || null,
+        media_url: mediaUrl,
+        media_type: mediaType,
         reply_to_id: replyingTo?.id || null,
       }
     ]);
@@ -324,13 +335,14 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
       alert('Failed to send message: ' + error.message);
     } else {
       setNewMessage('');
+      setStagedFile(null);
       setReplyingTo(null);
       setShowEmojiPicker(false);
       scrollToBottom(true);
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUploadStage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -349,9 +361,9 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     }
 
     const { data } = supabase.storage.from('chat-media').getPublicUrl(filePath);
-    const mediaType = file.type.startsWith('image/') ? 'image' : 'file';
+    const mediaType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file';
 
-    await handleSendMessage({} as any, data.publicUrl, mediaType);
+    setStagedFile({ url: data.publicUrl, type: mediaType, name: file.name });
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -427,13 +439,24 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   };
 
   const handleDeleteMessage = async (messageId: string) => {
-    await supabase.from('messages').delete().eq('id', messageId);
+    const { error } = await supabase.from('messages').delete().eq('id', messageId);
+    if (error) {
+      console.error('Error deleting message:', error);
+      alert('Failed to delete message: ' + error.message);
+    } else {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    }
     setActiveMenuId(null);
   };
 
   const handleSaveEdit = async (messageId: string) => {
     if (!editContent.trim()) return;
-    await supabase.from('messages').update({ content: editContent, updated_at: new Date().toISOString() }).eq('id', messageId);
+    const { error } = await supabase.from('messages').update({ content: editContent, updated_at: new Date().toISOString() }).eq('id', messageId);
+    if (error) {
+      alert('Failed to update message: ' + error.message);
+    } else {
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, content: editContent, updated_at: new Date().toISOString() } : m));
+    }
     setEditingId(null);
     setEditContent('');
     setActiveMenuId(null);
@@ -476,6 +499,8 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                 }
               }
 
+              const hasMedia = !!msg.media_type;
+
               return (
                 <div 
                   key={msg.id} 
@@ -494,12 +519,22 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
                   <div className="relative">
                     {isMenuOpen && (
-                      <div className={`absolute top-0 ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bg-gray-900 border border-gray-700 shadow-xl rounded-xl py-1 z-30 w-36 text-xs flex flex-col`}>
+                      <div 
+                        onClick={(e) => e.stopPropagation()} 
+                        className={`absolute top-0 ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bg-gray-900 border border-gray-700 shadow-xl rounded-xl py-1 z-30 w-36 text-xs flex flex-col`}
+                      >
                         <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Reply</button>
-                        <button onClick={() => { navigator.clipboard.writeText(msg.content); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Copy</button>
+                        {!hasMedia && (
+                          <button onClick={() => { navigator.clipboard.writeText(msg.content); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Copy</button>
+                        )}
                         {isMe && (
                           <>
-                            <button onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Edit</button>
+                            {!hasMedia && (
+                              <button onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Edit</button>
+                            )}
+                            {hasMedia && (
+                              <button onClick={() => { setEditingId(msg.id); setEditContent(msg.content || ''); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Edit Caption</button>
+                            )}
                             <button onClick={() => handleDeleteMessage(msg.id)} className="px-3 py-2 text-left text-red-400 hover:bg-gray-800 transition">Delete</button>
                           </>
                         )}
@@ -513,6 +548,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
                           className="bg-gray-800 text-white px-3 py-2 rounded-lg text-sm focus:outline-none"
+                          placeholder={hasMedia ? "Edit caption..." : "Edit message..."}
                         />
                         <div className="flex gap-2 justify-end text-xs">
                           <button onClick={() => setEditingId(null)} className="px-2 py-1 bg-gray-700 rounded text-gray-300">Cancel</button>
@@ -521,7 +557,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                       </div>
                     ) : (
                       <div 
-                        onContextMenu={(e) => { e.preventDefault(); setActiveMenuId(isMenuOpen ? null : msg.id); }}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : msg.id); }}
                         className={`px-4 py-2.5 rounded-2xl max-w-md shadow-md flex flex-col gap-1 cursor-pointer ${
                           isMe 
                             ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-br-sm' 
@@ -536,13 +572,24 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                         )}
 
                         {msg.media_type === 'image' && (
-                          <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover mt-1" />
+                          <div className="flex flex-col gap-1 mt-1">
+                            <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover" />
+                            <a href={msg.media_url} download target="_blank" rel="noreferrer" className="text-[10px] text-blue-200 self-end hover:underline">Download Image</a>
+                          </div>
+                        )}
+                        {msg.media_type === 'video' && (
+                          <div className="flex flex-col gap-1 mt-1">
+                            <video controls src={msg.media_url} className="rounded-lg max-h-60 max-w-[240px]" />
+                            <a href={msg.media_url} download target="_blank" rel="noreferrer" className="text-[10px] text-blue-200 self-end hover:underline">Download Video</a>
+                          </div>
                         )}
                         {msg.media_type === 'audio' && (
                           <AudioMessagePlayer src={msg.media_url} initialDuration={voiceDuration} />
                         )}
                         {msg.media_type === 'file' && (
-                          <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-blue-200 text-xs mt-1 block">📎 Download Attachment</a>
+                          <div className="flex flex-col gap-1 mt-1">
+                            <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-blue-200 text-xs block">📎 Download Attachment</a>
+                          </div>
                         )}
 
                         {cleanContent && <p className="text-sm leading-relaxed break-words">{cleanContent}</p>}
@@ -584,6 +631,16 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
             <p className="text-gray-300 truncate max-w-md">{replyingTo.content || 'Media attachment'}</p>
           </div>
           <button onClick={() => setReplyingTo(null)} className="text-gray-400 hover:text-white font-bold px-2">✕</button>
+        </div>
+      )}
+
+      {stagedFile && (
+        <div className="px-4 py-2 bg-gray-900/95 border-t border-gray-800 flex items-center justify-between text-xs z-10">
+          <div className="flex items-center gap-2">
+            <span className="bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold uppercase">{stagedFile.type} Staged</span>
+            <span className="text-gray-300 truncate max-w-xs">{stagedFile.name}</span>
+          </div>
+          <button onClick={() => setStagedFile(null)} className="text-red-400 hover:text-red-300 font-bold px-2">Remove ✕</button>
         </div>
       )}
 
@@ -634,7 +691,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
             <input 
               type="file" 
               ref={fileInputRef} 
-              onChange={handleFileUpload} 
+              onChange={handleFileUploadStage} 
               className="hidden" 
             />
             
@@ -643,7 +700,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
               className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl transition flex items-center justify-center border border-gray-700 shadow-sm cursor-pointer"
-              title="Attach file or image"
+              title="Attach picture, video or file"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -665,12 +722,11 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               autoComplete="new-password"
               value={newMessage}
               onChange={handleInputChange}
-              placeholder={isRecording ? `Recording voice note (${formatDuration(recordingSeconds)})...` : uploading ? "Uploading media..." : "Type a message or @username..."}
+              placeholder={isRecording ? `Recording voice note (${formatDuration(recordingSeconds)})...` : stagedFile ? "Add a caption..." : uploading ? "Uploading media..." : "Type a message, caption or @username..."}
               disabled={!currentUser || uploading}
               className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
             />
 
-            {/* Tap-to-Record / Tap-to-Stop Toggle Button */}
             {isRecording ? (
               <button 
                 type="button"
@@ -697,7 +753,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
             <button 
               type="submit"
-              disabled={!currentUser || uploading || (!newMessage.trim() && !isRecording)}
+              disabled={!currentUser || uploading || (!newMessage.trim() && !stagedFile && !isRecording)}
               className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow text-white cursor-pointer"
             >
               Send

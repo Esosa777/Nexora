@@ -1,6 +1,38 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
 
+// Helper component to render audio messages with automatic duration formatting
+function AudioMessagePlayer({ src }: { src: string }) {
+  const [duration, setDuration] = useState<string>('0:00');
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      const dur = audioRef.current.duration;
+      if (!isNaN(dur)) {
+        const mins = Math.floor(dur / 60);
+        const secs = Math.floor(dur % 60);
+        setDuration(`${mins}:${secs < 10 ? '0' : ''}${secs}`);
+      }
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1 mt-1">
+      <audio 
+        ref={audioRef}
+        controls 
+        src={src} 
+        onLoadedMetadata={handleLoadedMetadata}
+        className="h-8 max-w-[220px]" 
+      />
+      <span className="text-[10px] text-gray-300 self-end select-none">
+        Voice Note • {duration}
+      </span>
+    </div>
+  );
+}
+
 export default function ChatArea({ channelId, customBackground }: { channelId: string; customBackground?: string }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -189,7 +221,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     const value = e.target.value;
     setNewMessage(value);
 
-    // Check for @mention trigger
     const mentionMatch = value.match(/@([a-zA-Z0-9_]*)$/);
     if (mentionMatch) {
       const query = mentionMatch[1];
@@ -299,12 +330,28 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 6. Voice Note Recording Handler
+  // 6. High-Quality Voice Note Recording Handler
   const startRecording = async () => {
     audioChunksRef.current = [];
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { 
+          echoCancellation: true, 
+          noiseSuppression: true, 
+          sampleRate: 44100 
+        } 
+      });
+
+      // Use high-definition Opus codec if supported
+      let options = { mimeType: 'audio/webm;codecs=opus' };
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'audio/ogg;codecs=opus' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+          options = {} as any;
+        }
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -400,9 +447,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                     <span className="text-xs text-gray-400 font-medium">{displayName}</span>
                   </div>
 
-                  {/* Scoped Context Menu container wrapper */}
                   <div className="relative">
-                    {/* Popup Context Menu anchored ONLY to this specific message bubble */}
                     {isMenuOpen && (
                       <div className={`absolute top-0 ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bg-gray-900 border border-gray-700 shadow-xl rounded-xl py-1 z-30 w-36 text-xs flex flex-col`}>
                         <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Reply</button>
@@ -431,7 +476,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                       </div>
                     ) : (
                       <div 
-                        /* Right-click ONLY opens menu for THIS specific message */
                         onContextMenu={(e) => { e.preventDefault(); setActiveMenuId(isMenuOpen ? null : msg.id); }}
                         className={`px-4 py-2.5 rounded-2xl max-w-md shadow-md flex flex-col gap-1 cursor-pointer ${
                           isMe 
@@ -450,7 +494,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                           <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover mt-1" />
                         )}
                         {msg.media_type === 'audio' && (
-                          <audio controls src={msg.media_url} className="h-8 max-w-[200px] mt-1" />
+                          <AudioMessagePlayer src={msg.media_url} />
                         )}
                         {msg.media_type === 'file' && (
                           <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-blue-200 text-xs mt-1 block">📎 Download Attachment</a>
@@ -502,7 +546,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
       {/* Message Input & Mention Suggestions Box */}
       {channelId && (
         <div className="relative">
-          {/* Mention Suggestions Popup List */}
           {mentionSuggestions.length > 0 && (
             <div className="absolute bottom-full left-4 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-64 overflow-hidden z-30">
               <div className="px-3 py-1.5 text-[10px] text-gray-400 bg-gray-800/80 border-b border-gray-700 font-semibold">

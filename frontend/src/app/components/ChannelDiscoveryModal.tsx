@@ -1,6 +1,6 @@
-// src/components/ChannelDiscoveryModal.tsx
+// src/app/components/ChannelDiscoveryModal.tsx
 import React, { useState, useEffect } from 'react';
-import { supabase } from "../lib/supabase";
+import { supabase } from '../lib/supabase';
 
 interface Channel {
   id: string;
@@ -12,11 +12,13 @@ interface Channel {
 }
 
 interface ChannelDiscoveryModalProps {
+  isOpen?: boolean;
   onClose: () => void;
-  onJoined: () => void;
+  onJoinedChannel?: (channelId: string) => void;
+  onJoined?: () => void;
 }
 
-export default function ChannelDiscoveryModal({ onClose, onJoined }: ChannelDiscoveryModalProps) {
+export default function ChannelDiscoveryModal({ isOpen = true, onClose, onJoinedChannel, onJoined }: ChannelDiscoveryModalProps) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'trending' | 'newest'>('trending');
@@ -24,12 +26,16 @@ export default function ChannelDiscoveryModal({ onClose, onJoined }: ChannelDisc
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchDiscoverableChannels();
-  }, []);
+    if (isOpen) {
+      fetchDiscoverableChannels();
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const fetchDiscoverableChannels = async () => {
     setLoading(true);
-    // Fetch channels and count their members for the FYP ranking algorithm
+    // Fetch channels and count members for FYP / Trending ranking
     const { data, error } = await supabase
       .from('channels')
       .select(`
@@ -55,7 +61,7 @@ export default function ChannelDiscoveryModal({ onClose, onJoined }: ChannelDisc
     )
     .sort((a, b) => {
       if (sortBy === 'trending') {
-        // FYP Ranking: Highest member count first (popularity)
+        // FYP Ranking: Highest member count first
         return (b.member_count || 0) - (a.member_count || 0);
       } else {
         // Newest channels first
@@ -86,7 +92,8 @@ export default function ChannelDiscoveryModal({ onClose, onJoined }: ChannelDisc
         console.error("Join error:", error.message);
       }
     } else {
-      onJoined();
+      if (onJoinedChannel) onJoinedChannel(channelId);
+      if (onJoined) onJoined();
       onClose();
     }
   };
@@ -106,7 +113,7 @@ export default function ChannelDiscoveryModal({ onClose, onJoined }: ChannelDisc
           </button>
         </div>
 
-        {/* Notice Banner for Duplicate Join Warnings */}
+        {/* Notice Banner */}
         {notice && (
           <div className="mb-4 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-4 py-2.5 rounded-lg text-sm flex justify-between items-center">
             <span>{notice}</span>

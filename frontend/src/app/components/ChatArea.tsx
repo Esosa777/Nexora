@@ -6,13 +6,35 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      const dur = audioRef.current.duration;
-      if (dur && isFinite(dur) && !isNaN(dur)) {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    // Handle WebM Infinity duration metadata glitch
+    if (audio.duration === Infinity || isNaN(audio.duration)) {
+      audio.currentTime = 1e101;
+      audio.ontimeupdate = () => {
+        audio.ontimeupdate = null;
+        const dur = audio.duration;
+        audio.currentTime = 0;
+        if (dur && isFinite(dur) && !isNaN(dur)) {
+          const mins = Math.floor(dur / 60);
+          const secs = Math.floor(dur % 60);
+          setDuration(`${mins}:${secs < 10 ? '0' : ''}${secs}`);
+        }
+      };
+    } else {
+      const dur = audio.duration;
+      if (dur && isFinite(dur)) {
         const mins = Math.floor(dur / 60);
         const secs = Math.floor(dur % 60);
         setDuration(`${mins}:${secs < 10 ? '0' : ''}${secs}`);
       }
+    }
+  };
+
+  const handleEnded = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
     }
   };
 
@@ -23,6 +45,7 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
         controls 
         src={src} 
         onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleEnded}
         className="h-8 max-w-[220px]" 
       />
       <span className="text-[10px] text-gray-300 self-end select-none">

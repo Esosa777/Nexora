@@ -17,6 +17,35 @@ export default function ChatArea({ channelId }: { channelId: string }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Subtle pop sound effect using Web Audio API
+  const playPopSound = () => {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(450, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(750, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+    } catch (e) {
+      // Ignore audio policy blocks before user interaction
+    }
+  };
+
+  // Format timestamp helper
+  const formatTime = (dateString: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   // Helper to scroll to bottom smoothly
   const scrollToBottom = (smooth = true) => {
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
@@ -48,7 +77,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch messages & subscribe to database inserts/updates/deletes
+  // 2. Fetch messages & subscribe to database changes
   useEffect(() => {
     if (!channelId) {
       setMessages([]);
@@ -64,6 +93,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
           id,
           content,
           created_at,
+          updated_at,
           user_id,
           profiles:user_id ( username, avatar_url )
         `)
@@ -121,11 +151,20 @@ export default function ChatArea({ channelId }: { channelId: string }) {
                 setShowScrollButton(true);
               }
 
+              // Play pop sound on incoming message if it's not from us
+              if (fullMessage.user_id !== currentUser?.id) {
+                playPopSound();
+              }
+
               return updatedMessages;
             });
           } else if (payload.eventType === 'UPDATE') {
             setMessages((prev) =>
-              prev.map((msg) => (msg.id === payload.new.id ? { ...msg, content: payload.new.content } : msg))
+              prev.map((msg) => 
+                msg.id === payload.new.id 
+                  ? { ...msg, content: payload.new.content, updated_at: payload.new.updated_at } 
+                  : msg
+              )
             );
           } else if (payload.eventType === 'DELETE') {
             setMessages((prev) => prev.filter((msg) => msg.id === payload.old.id));
@@ -203,6 +242,8 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     e.preventDefault();
     if (!newMessage.trim() || !channelId) return;
 
+    playPopSound(); // Play sound on send
+
     const { error } = await supabase.from('messages').insert([
       {
         channel_id: channelId,
@@ -239,14 +280,18 @@ export default function ChatArea({ channelId }: { channelId: string }) {
 
     const { error } = await supabase
       .from('messages')
-      .update({ content: editContent })
+      .update({ content: editContent, updated_at: new Date().toISOString() })
       .eq('id', messageId);
 
     if (error) {
       console.error('Error updating message:', error);
     } else {
       setMessages((prev) =>
-        prev.map((msg) => (msg.id === messageId ? { ...msg, content: editContent } : msg))
+        prev.map((msg) => 
+          msg.id === messageId 
+            ? { ...msg, content: editContent, updated_at: new Date().toISOString() } 
+            : msg
+        )
       );
       setEditingId(null);
       setEditContent('');
@@ -272,6 +317,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
               const isEditing = editingId === msg.id;
+              const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
 
               return (
                 <div 
@@ -319,7 +365,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
                         type="text"
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
-                        className="bg-gray-800 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="bg-gray-800 text-white px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-inner"
                       />
                       <div className="flex gap-2 justify-end text-xs">
                         <button 
@@ -338,13 +384,19 @@ export default function ChatArea({ channelId }: { channelId: string }) {
                     </div>
                   ) : (
                     <div 
-                      className={`p-3 rounded-xl max-w-md ${
+                      className={`px-4 py-2.5 rounded-2xl max-w-md shadow-md flex flex-col gap-1 ${
                         isMe 
-                          ? 'bg-blue-600 text-white rounded-br-none' 
-                          : 'bg-gray-800 text-gray-200 rounded-bl-none'
+                          ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-br-sm' 
+                          : 'bg-gray-800/90 border border-gray-700/60 text-gray-100 rounded-bl-sm'
                       }`}
                     >
-                      <p className="text-sm">{msg.content}</p>
+                      <p className="text-sm leading-relaxed break-words">{msg.content}</p>
+                      
+                      {/* Timestamp & Edited tag */}
+                      <div className={`flex items-center gap-1.5 text-[10px] select-none ${isMe ? 'text-blue-200 justify-end' : 'text-gray-400 justify-start'}`}>
+                        {isEdited && <span>(edited)</span>}
+                        <span>{formatTime(msg.created_at)}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -382,12 +434,12 @@ export default function ChatArea({ channelId }: { channelId: string }) {
             onChange={handleInputChange}
             placeholder={currentUser ? "Type a message..." : "Sign in to send messages"}
             disabled={!currentUser}
-            className="flex-1 bg-gray-800 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50"
+            className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner"
           />
           <button 
             type="submit"
             disabled={!currentUser}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2 rounded-lg font-medium transition"
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow"
           >
             Send
           </button>

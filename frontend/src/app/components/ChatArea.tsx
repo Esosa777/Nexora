@@ -225,30 +225,52 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
     async function getMessages() {
       console.log("Fetching messages for channel:", channelId);
-      const { data, error } = await supabase
+      
+      // 1. Fetch raw messages without relational embeds to avoid schema cache errors
+      const { data: rawMessages, error: msgError } = await supabase
         .from('messages')
-        .select(`
-          id,
-          content,
-          created_at,
-          updated_at,
-          user_id,
-          media_url,
-          media_type,
-          reply_to_id,
-          profiles:user_id!messages_user_id_fkey ( username, avatar_url, role )
-        `)
+        .select('*')
         .eq('channel_id', channelId)
         .order('created_at', { ascending: true });
 
-      if (error) {
-        console.error('Supabase error fetching messages:', error);
-        alert('Failed to load messages: ' + error.message);
-      } else {
-        console.log("Fetched messages successfully:", data);
-        setMessages(data || []);
-        setTimeout(() => scrollToBottom(false), 50);
+      if (msgError) {
+        console.error('Supabase error fetching messages:', msgError);
+        alert('Failed to load messages: ' + msgError.message);
+        return;
       }
+
+      if (!rawMessages || rawMessages.length === 0) {
+        setMessages([]);
+        return;
+      }
+
+      // 2. Extract unique user IDs and fetch their profiles independently
+      const userIds = Array.from(new Set(rawMessages.map(m => m.user_id).filter(Boolean)));
+      let profilesMap: Record<string, any> = {};
+
+      if (userIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url, role')
+          .in('id', userIds);
+
+        if (profilesData) {
+          profilesMap = profilesData.reduce((acc, profile) => {
+            acc[profile.id] = profile;
+            return acc;
+          }, {} as Record<string, any>);
+        }
+      }
+
+      // 3. Attach profiles to messages
+      const messagesWithProfiles = rawMessages.map(msg => ({
+        ...msg,
+        profiles: msg.user_id ? profilesMap[msg.user_id] || null : null
+      }));
+
+      console.log("Fetched messages successfully:", messagesWithProfiles);
+      setMessages(messagesWithProfiles);
+      setTimeout(() => scrollToBottom(false), 50);
     }
 
     getMessages();

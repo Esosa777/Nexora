@@ -6,7 +6,30 @@ export default function ChatArea({ channelId }: { channelId: string }) {
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Helper to scroll to bottom smoothly
+  const scrollToBottom = (smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+    setUnreadCount(0);
+    setShowScrollButton(false);
+  };
+
+  // Track scroll position to show/hide the jump-to-bottom button
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const isFarFromBottom = scrollHeight - scrollTop - clientHeight > 150;
+    setShowScrollButton(isFarFromBottom);
+    if (!isFarFromBottom) {
+      setUnreadCount(0);
+    }
+  };
 
   // 1. Track logged-in user
   useEffect(() => {
@@ -21,14 +44,13 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch messages & subscribe to database inserts (Clears old messages on channel switch)
+  // 2. Fetch messages & subscribe to database inserts
   useEffect(() => {
     if (!channelId) {
       setMessages([]);
       return;
     }
 
-    // Clear messages instantly when switching channels to prevent bleeding
     setMessages([]);
 
     async function getMessages() {
@@ -48,6 +70,8 @@ export default function ChatArea({ channelId }: { channelId: string }) {
         console.error('Error fetching messages:', error);
       } else {
         setMessages(data || []);
+        // Scroll to bottom instantly on initial load
+        setTimeout(() => scrollToBottom(false), 50);
       }
     }
 
@@ -81,7 +105,20 @@ export default function ChatArea({ channelId }: { channelId: string }) {
           
           setMessages((prev) => {
             if ((prev as any[]).some((msg: any) => msg.id === (fullMessage as any).id)) return prev;
-            return [...prev, fullMessage];
+            const updatedMessages = [...prev, fullMessage];
+
+            // Smart scroll: auto-scroll if it's your message or you're already at the bottom
+            const container = scrollContainerRef.current;
+            const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight < 150) : true;
+            
+            if (isNearBottom || fullMessage.user_id === currentUser?.id) {
+              setTimeout(() => scrollToBottom(true), 50);
+            } else {
+              setUnreadCount((count) => count + 1);
+              setShowScrollButton(true);
+            }
+
+            return updatedMessages;
           });
         }
       )
@@ -90,7 +127,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     return () => {
       supabase.removeChannel(channelSubscription);
     };
-  }, [channelId]);
+  }, [channelId, currentUser]);
 
   // 3. Typing Broadcast channel effect
   useEffect(() => {
@@ -168,63 +205,82 @@ export default function ChatArea({ channelId }: { channelId: string }) {
       console.error('Error sending message:', error);
     } else {
       setNewMessage('');
+      scrollToBottom(true);
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gray-950 text-white">
-      {/* Messages Feed */}
-      <div className="flex-1 p-4 overflow-y-auto space-y-4">
+    <div className="flex-1 flex flex-col h-full bg-gray-950 text-white relative">
+      {/* Messages Feed Container */}
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 p-4 overflow-y-auto space-y-4 relative"
+      >
         {!channelId ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             Select a channel from the sidebar to start chatting
           </div>
         ) : (
-          messages.map((msg) => {
-            const isMe = currentUser && msg.user_id === currentUser.id;
-            const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
-            const avatarUrl = msg.profiles?.avatar_url;
+          <>
+            {messages.map((msg) => {
+              const isMe = currentUser && msg.user_id === currentUser.id;
+              const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
+              const avatarUrl = msg.profiles?.avatar_url;
 
-            return (
-              <div 
-                key={msg.id} 
-                className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-              >
-                {/* Sender Avatar & Username Header */}
-                <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                  <div className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
-                    {avatarUrl ? (
-                      <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-[10px] text-gray-300 font-bold">
-                        {displayName[0].toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-gray-400 font-medium">
-                    {displayName}
-                  </span>
-                </div>
-
-                {/* Message Bubble */}
+              return (
                 <div 
-                  className={`p-3 rounded-xl max-w-md ${
-                    isMe 
-                      ? 'bg-blue-600 text-white rounded-br-none' 
-                      : 'bg-gray-800 text-gray-200 rounded-bl-none'
-                  }`}
+                  key={msg.id} 
+                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
                 >
-                  <p className="text-sm">{msg.content}</p>
+                  {/* Sender Avatar & Username Header */}
+                  <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-gray-300 font-bold">
+                          {displayName[0].toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400 font-medium">
+                      {displayName}
+                    </span>
+                  </div>
+
+                  {/* Message Bubble */}
+                  <div 
+                    className={`p-3 rounded-xl max-w-md ${
+                      isMe 
+                        ? 'bg-blue-600 text-white rounded-br-none' 
+                        : 'bg-gray-800 text-gray-200 rounded-bl-none'
+                    }`}
+                  >
+                    <p className="text-sm">{msg.content}</p>
+                  </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })}
+            {/* Scroll Anchor */}
+            <div ref={messagesEndRef} />
+          </>
+        )}
+
+        {/* WhatsApp-Style Jump to Bottom Button */}
+        {showScrollButton && (
+          <button 
+            onClick={() => scrollToBottom(true)}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg flex items-center gap-2 transition z-20 cursor-pointer"
+          >
+            ↓ {unreadCount > 0 ? `${unreadCount} new message${unreadCount > 1 ? 's' : ''}` : 'Scroll to bottom'}
+          </button>
         )}
       </div>
 
       {/* Typing Indicator Display */}
       {typingUsers.length > 0 && (
-        <div className="px-4 py-1 text-xs text-gray-400 italic">
+        <div className="px-4 py-1 text-xs text-gray-400 italic bg-gray-900/50">
           {typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
         </div>
       )}

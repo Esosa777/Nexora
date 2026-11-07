@@ -1,135 +1,148 @@
-import { useState, useRef } from 'react';
+// src/components/ChannelSettingsModal.tsx
+import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-interface ChannelSettingsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  channel: {
-    id: string;
-    name: string;
-    description?: string;
-    avatar_url?: string;
-  };
-  onChannelUpdated: () => void;
+interface Channel {
+  id: string;
+  name: string;
+  description?: string;
+  avatar_url?: string;
 }
 
-export default function ChannelSettingsModal({ isOpen, onClose, channel, onChannelUpdated }: ChannelSettingsModalProps) {
+interface ChannelSettingsModalProps {
+  channel: Channel;
+  onClose: () => void;
+  onUpdate: () => void;
+}
+
+export default function ChannelSettingsModal({ channel, onClose, onUpdate }: ChannelSettingsModalProps) {
   const [name, setName] = useState(channel.name);
   const [description, setDescription] = useState(channel.description || '');
   const [avatarUrl, setAvatarUrl] = useState(channel.avatar_url || '');
   const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
-
+  // Handle avatar image selection & upload to Supabase Storage ('chat-media')
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    try {
+      if (!e.target.files || e.target.files.length === 0) return;
+      const file = e.target.files[0];
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${channel.id}-${Math.random()}.${fileExt}`;
+      const filePath = `channel-avatars/${fileName}`;
 
-    setUploading(true);
-    const fileExt = file.name.split('.').pop();
-    const fileName = `channel_avatar_${channel.id}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-    const filePath = `avatars/${fileName}`;
+      setUploading(true);
 
-    const { error: uploadError } = await supabase.storage.from('chat-media').upload(filePath, file);
+      const { error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(filePath, file);
 
-    if (uploadError) {
-      alert('Avatar upload failed: ' + uploadError.message);
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(filePath);
+
+      setAvatarUrl(data.publicUrl);
+    } catch (error: any) {
+      alert("Error uploading avatar: " + error.message);
+    } finally {
       setUploading(false);
-      return;
     }
-
-    const { data } = supabase.storage.from('chat-media').getPublicUrl(filePath);
-    setAvatarUrl(data.publicUrl);
-    setUploading(false);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-
+  const handleSave = async () => {
     const { error } = await supabase
       .from('channels')
       .update({
-        name: name.trim(),
-        description: description.trim(),
-        avatar_url: avatarUrl,
+        name,
+        description,
+        avatar_url: avatarUrl
       })
       .eq('id', channel.id);
 
     if (error) {
-      alert('Failed to update channel: ' + error.message);
+      alert("Failed to update channel settings: " + error.message);
     } else {
-      onChannelUpdated();
+      onUpdate();
       onClose();
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-white">
-        <div className="flex justify-between items-center mb-4 border-b border-gray-800 pb-3">
-          <h2 className="text-lg font-bold">Channel Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white font-bold p-1">✕</button>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-6 text-white shadow-2xl">
+        
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold">Channel Settings</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">&times;</button>
         </div>
 
-        <form onSubmit={handleSave} className="space-y-4">
-          <div className="flex flex-col items-center justify-center gap-2 mb-4">
-            <div 
-              onClick={() => fileInputRef.current?.click()}
-              className="w-20 h-20 rounded-full bg-gray-800 border-2 border-dashed border-gray-600 overflow-hidden flex items-center justify-center cursor-pointer hover:border-blue-500 transition relative group"
-            >
+        {/* Interactive Channel Profile Picture Slot */}
+        <div className="flex flex-col items-center mb-6">
+          <label className="relative group cursor-pointer">
+            <div className="w-24 h-24 rounded-full bg-gray-800 border-2 border-dashed border-gray-600 flex items-center justify-center overflow-hidden hover:border-indigo-500 transition">
               {avatarUrl ? (
                 <img src={avatarUrl} alt="Channel Avatar" className="w-full h-full object-cover" />
               ) : (
-                <span className="text-2xl font-bold text-gray-400">{name[0]?.toUpperCase() || '#'}</span>
+                <div className="text-center p-2">
+                  <span className="text-2xl">📷</span>
+                  <p className="text-[10px] text-gray-400 mt-1">Add Photo</p>
+                </div>
               )}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px] font-semibold transition">
-                Change
-              </div>
             </div>
-            <input type="file" ref={fileInputRef} onChange={handleAvatarUpload} className="hidden" accept="image/*" />
-            <span className="text-xs text-gray-400">{uploading ? 'Uploading...' : 'Click to change channel picture'}</span>
-          </div>
+            {uploading && (
+              <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center text-xs">
+                Uploading...
+              </div>
+            )}
+            <input 
+              type="file" 
+              accept="image/*" 
+              onChange={handleAvatarUpload} 
+              className="hidden" 
+            />
+          </label>
+          <span className="text-xs text-gray-400 mt-2">Tap circle to change channel picture</span>
+        </div>
 
+        {/* Inputs */}
+        <div className="space-y-4 mb-6">
           <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1">Channel Name</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Channel Name</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-              required
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1">Description</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-600 resize-none"
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 resize-none"
             />
           </div>
+        </div>
 
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-sm font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={uploading || !name.trim()}
-              className="px-5 py-2 rounded-xl text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition shadow-md"
-            >
-              Save Changes
-            </button>
-          </div>
-        </form>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl text-sm bg-gray-800 text-gray-300 hover:bg-gray-700 transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-5 py-2 rounded-xl text-sm bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition shadow-lg shadow-indigo-600/20"
+          >
+            Save Changes
+          </button>
+        </div>
+
       </div>
     </div>
   );

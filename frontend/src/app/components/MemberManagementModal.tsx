@@ -149,6 +149,11 @@ export default function MemberManagementModal({ isOpen, onClose, channelId }: Me
 
         {loading ? (
           <div className="py-8 text-center text-gray-500 text-sm">Loading members...</div>
+        ) : members.length === 0 ? (
+          <div className="py-12 text-center text-gray-400">
+            <p className="text-base font-medium">No participants found</p>
+            <p className="text-xs text-gray-500 mt-1">If you just created this channel, ensure your creation handler inserts the creator into channel_members.</p>
+          </div>
         ) : (
           <div className="flex-1 overflow-y-auto space-y-3 pr-1">
             {members.map((member) => {

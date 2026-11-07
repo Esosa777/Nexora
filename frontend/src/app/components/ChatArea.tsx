@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
 
-// Helper function for direct background file downloads
-const downloadFile = async (url: string, filename: string) => {
+// Helper for direct background downloads without page redirection
+async function handleDirectDownload(url: string, filename: string) {
   try {
     const response = await fetch(url);
     const blob = await response.blob();
@@ -17,11 +17,17 @@ const downloadFile = async (url: string, filename: string) => {
   } catch (err) {
     window.open(url, '_blank');
   }
-};
+}
 
 function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDuration?: string }) {
   const [duration, setDuration] = useState<string>(initialDuration || '0:00');
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    // Instant audio download on drop
+    const fileName = src.split('/').pop() || 'voicenote.webm';
+    handleDirectDownload(src, fileName);
+  }, [src]);
 
   const handleLoadedMetadata = () => {
     const audio = audioRef.current;
@@ -68,8 +74,8 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
       <div className="flex justify-between items-center text-[10px] text-gray-300 select-none px-1">
         <span>Voice Note • {duration}</span>
         <button 
-          onClick={() => downloadFile(src, 'voice_note.webm')} 
-          className="hover:underline text-blue-300 bg-transparent border-none cursor-pointer p-0 text-[10px]"
+          onClick={() => handleDirectDownload(src, 'voicenote.webm')} 
+          className="hover:underline text-blue-300 cursor-pointer bg-transparent border-none p-0 text-[10px]"
         >
           Download
         </button>
@@ -81,6 +87,13 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
 function DownloadableImage({ src }: { src: string }) {
   const [downloaded, setDownloaded] = useState(false);
 
+  useEffect(() => {
+    // Instant picture download on drop
+    const fileName = src.split('/').pop() || 'image.jpg';
+    handleDirectDownload(src, fileName);
+    setDownloaded(true);
+  }, [src]);
+
   return (
     <div className="relative group rounded-lg overflow-hidden max-h-60 mt-1 flex items-center justify-center bg-black/50">
       <img 
@@ -89,12 +102,14 @@ function DownloadableImage({ src }: { src: string }) {
         className={`w-full h-full object-cover transition duration-300 ${!downloaded ? 'filter blur-md scale-105 opacity-60' : 'filter blur-0 opacity-100'}`} 
       />
       {!downloaded && (
-        <div 
+        <button 
+          type="button"
           onClick={() => {
+            const fileName = src.split('/').pop() || 'image.jpg';
+            handleDirectDownload(src, fileName);
             setDownloaded(true);
-            downloadFile(src, 'image_attachment.png');
           }}
-          className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/40 backdrop-blur-sm cursor-pointer hover:bg-black/50 transition"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/40 backdrop-blur-sm cursor-pointer hover:bg-black/50 transition border-none bg-transparent w-full h-full"
           title="Tap to download image"
         >
           <div className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-xl transition transform hover:scale-105">
@@ -102,8 +117,8 @@ function DownloadableImage({ src }: { src: string }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
           </div>
-          <span className="text-xs font-semibold text-white tracking-wide shadow-text">Tap to Download</span>
-        </div>
+          <span className="text-xs font-semibold text-white tracking-wide">Tap to Download</span>
+        </button>
       )}
     </div>
   );
@@ -139,6 +154,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Close context menu on outside click
   useEffect(() => {
     const handleClickOutside = () => setActiveMenuId(null);
     window.addEventListener('click', handleClickOutside);
@@ -190,6 +206,40 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     if (!isFarFromBottom) setUnreadCount(0);
   };
 
+  // WhatsApp-style Channel Shutdown vs. Local Removal Handler
+  const handleChannelDeletionOrLeave = async (targetChannelId: string, userRole: 'creator' | 'admin' | 'member') => {
+    if (userRole === 'creator') {
+      const confirmGlobal = window.confirm("Are you sure you want to permanently shut down this channel for everyone? This action cannot be undone.");
+      if (!confirmGlobal) return;
+
+      const { error } = await supabase
+        .from('channels')
+        .delete()
+        .eq('id', targetChannelId);
+
+      if (error) {
+        alert("Failed to delete channel: " + error.message);
+      } else {
+        alert("Channel permanently shut down.");
+      }
+    } else {
+      const confirmLocal = window.confirm("Do you want to remove this channel from your sidebar?");
+      if (!confirmLocal) return;
+
+      if (!currentUser) return;
+
+      const { error } = await supabase
+        .from('channel_members')
+        .delete()
+        .eq('channel_id', targetChannelId)
+        .eq('user_id', currentUser.id);
+
+      if (error) {
+        alert("Failed to leave channel: " + error.message);
+      }
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setCurrentUser(user);
@@ -222,7 +272,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
           media_url,
           media_type,
           reply_to_id,
-          profiles:user_id ( username, avatar_url )
+          profiles:user_id ( username, avatar_url, role )
         `)
         .eq('channel_id', channelId)
         .order('created_at', { ascending: true });
@@ -253,7 +303,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
             if (payload.new.user_id) {
               const { data } = await supabase
                 .from('profiles')
-                .select('username, avatar_url')
+                .select('username, avatar_url, role')
                 .eq('id', payload.new.user_id)
                 .single();
               senderProfile = data;
@@ -537,6 +587,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               const isMe = currentUser && msg.user_id === currentUser.id;
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
+              const userRole = msg.profiles?.role;
               const isEditing = editingId === msg.id;
               const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
               const isMenuOpen = activeMenuId === msg.id;
@@ -568,6 +619,18 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                       )}
                     </div>
                     <span className="text-xs text-gray-400 font-medium">{displayName}</span>
+
+                    {/* WhatsApp-style Creator & Admin Badges */}
+                    {userRole === 'creator' && (
+                      <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                        👑 Creator
+                      </span>
+                    )}
+                    {userRole === 'admin' && (
+                      <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                        🛡️ Admin
+                      </span>
+                    )}
                   </div>
 
                   <div className="relative">
@@ -630,12 +693,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                         {msg.media_type === 'video' && (
                           <div className="flex flex-col gap-1 mt-1">
                             <video controls src={msg.media_url} className="rounded-lg max-h-60 max-w-[240px]" />
-                            <button 
-                              onClick={() => downloadFile(msg.media_url, 'video_attachment.mp4')}
-                              className="text-[10px] text-blue-200 self-end hover:underline bg-transparent border-none cursor-pointer p-0"
-                            >
-                              Download Video
-                            </button>
+                            <a href={msg.media_url} download target="_blank" rel="noreferrer" className="text-[10px] text-blue-200 self-end hover:underline">Download Video</a>
                           </div>
                         )}
                         {msg.media_type === 'audio' && (
@@ -643,12 +701,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                         )}
                         {msg.media_type === 'file' && (
                           <div className="flex flex-col gap-1 mt-1">
-                            <button 
-                              onClick={() => downloadFile(msg.media_url, 'attachment_file')}
-                              className="underline text-blue-200 text-xs block text-left bg-transparent border-none cursor-pointer p-0"
-                            >
-                              📎 Download Attachment
-                            </button>
+                            <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-blue-200 text-xs block">📎 Download Attachment</a>
                           </div>
                         )}
 
@@ -698,4 +751,129 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         <div className="px-4 py-2 bg-gray-900/95 border-t border-gray-800 flex items-center justify-between text-xs z-10">
           <div className="flex items-center gap-2">
             <span className="bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold uppercase">{stagedFile.type} Staged</span>
-            <span className="text-gray-300 truncate max-w-xs">{stagedFile.name}
+            <span className="text-gray-300 truncate max-w-xs">{stagedFile.name}</span>
+          </div>
+          <button onClick={() => setStagedFile(null)} className="text-red-400 hover:text-red-300 font-bold px-2">Remove ✕</button>
+        </div>
+      )}
+
+      {channelId && (
+        <div className="relative">
+          {mentionSuggestions.length > 0 && (
+            <div className="absolute bottom-full left-4 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-64 overflow-hidden z-30">
+              <div className="px-3 py-1.5 text-[10px] text-gray-400 bg-gray-800/80 border-b border-gray-700 font-semibold">
+                People matching @{mentionQuery}
+              </div>
+              {mentionSuggestions.map((user) => (
+                <button
+                  key={user.username}
+                  onClick={() => selectMention(user.username)}
+                  className="w-full px-3 py-2 text-left hover:bg-gray-800 text-xs flex items-center gap-2 transition"
+                >
+                  <div className="w-5 h-5 rounded-full bg-gray-700 overflow-hidden flex items-center justify-center font-bold text-[10px]">
+                    {user.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : user.username[0].toUpperCase()}
+                  </div>
+                  <span className="font-medium text-white">@{user.username}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {showEmojiPicker && (
+            <div className="absolute bottom-full left-16 mb-2 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-3 grid grid-cols-6 gap-2 z-30 w-64">
+              <div className="col-span-6 pb-1 mb-1 border-b border-gray-800 text-[10px] text-gray-400 font-semibold">
+                Choose an emoji
+              </div>
+              {['😊', '😂', '❤️', '👍', '🔥', '🎉', '😎', '😢', '🙏', '✨', '👀', '💯', '🚀', '⭐', '🙌', '💡', '💬', '👏'].map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    setNewMessage((prev) => prev + emoji);
+                    setShowEmojiPicker(false);
+                  }}
+                  className="w-8 h-8 hover:bg-gray-800 rounded-xl flex items-center justify-center text-lg transition cursor-pointer"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={(e) => handleSendMessage(e)} className="p-4 bg-gray-900/95 border-t border-gray-800 flex items-center gap-3 z-10">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileUploadStage} 
+              className="hidden" 
+            />
+            
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl transition flex items-center justify-center border border-gray-700 shadow-sm cursor-pointer"
+              title="Attach picture, video or file"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
+
+            <button 
+              type="button" 
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl transition flex items-center justify-center border border-gray-700 shadow-sm cursor-pointer text-base"
+              title="Insert emoji"
+            >
+              😊
+            </button>
+
+            <input
+              type="text"
+              name="chat-message-input"
+              autoComplete="new-password"
+              value={newMessage}
+              onChange={handleInputChange}
+              placeholder={isRecording ? `Recording voice note (${formatDuration(recordingSeconds)})...` : stagedFile ? "Add a caption..." : uploading ? "Uploading media..." : "Type a message, caption or @username..."}
+              disabled={!currentUser || uploading}
+              className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
+            />
+
+            {isRecording ? (
+              <button 
+                type="button"
+                onClick={stopRecording}
+                className="p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm bg-red-600 border-red-500 animate-pulse text-white cursor-pointer"
+                title="Stop recording"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              <button 
+                type="button"
+                onClick={startRecording}
+                className="p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700 cursor-pointer"
+                title="Record voice note"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+                </svg>
+              </button>
+            )}
+
+            <button 
+              type="submit"
+              disabled={!currentUser || uploading || (!newMessage.trim() && !stagedFile && !isRecording)}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow text-white cursor-pointer"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}

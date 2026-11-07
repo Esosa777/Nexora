@@ -24,7 +24,6 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
-    // Instant audio download on drop
     const fileName = src.split('/').pop() || 'voicenote.webm';
     handleDirectDownload(src, fileName);
   }, [src]);
@@ -88,7 +87,6 @@ function DownloadableImage({ src }: { src: string }) {
   const [downloaded, setDownloaded] = useState(false);
 
   useEffect(() => {
-    // Instant picture download on drop
     const fileName = src.split('/').pop() || 'image.jpg';
     handleDirectDownload(src, fileName);
     setDownloaded(true);
@@ -154,7 +152,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close context menu on outside click
   useEffect(() => {
     const handleClickOutside = () => setActiveMenuId(null);
     window.addEventListener('click', handleClickOutside);
@@ -204,40 +201,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     const isFarFromBottom = scrollHeight - scrollTop - clientHeight > 150;
     setShowScrollButton(isFarFromBottom);
     if (!isFarFromBottom) setUnreadCount(0);
-  };
-
-  // WhatsApp-style Channel Shutdown vs. Local Removal Handler
-  const handleChannelDeletionOrLeave = async (targetChannelId: string, userRole: 'creator' | 'admin' | 'member') => {
-    if (userRole === 'creator') {
-      const confirmGlobal = window.confirm("Are you sure you want to permanently shut down this channel for everyone? This action cannot be undone.");
-      if (!confirmGlobal) return;
-
-      const { error } = await supabase
-        .from('channels')
-        .delete()
-        .eq('id', targetChannelId);
-
-      if (error) {
-        alert("Failed to delete channel: " + error.message);
-      } else {
-        alert("Channel permanently shut down.");
-      }
-    } else {
-      const confirmLocal = window.confirm("Do you want to remove this channel from your sidebar?");
-      if (!confirmLocal) return;
-
-      if (!currentUser) return;
-
-      const { error } = await supabase
-        .from('channel_members')
-        .delete()
-        .eq('channel_id', targetChannelId)
-        .eq('user_id', currentUser.id);
-
-      if (error) {
-        alert("Failed to leave channel: " + error.message);
-      }
-    }
   };
 
   useEffect(() => {
@@ -623,7 +586,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                     </div>
                     <span className="text-xs text-gray-400 font-medium">{displayName}</span>
 
-                    {/* WhatsApp-style Creator & Admin Badges */}
                     {userRole === 'creator' && (
                       <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
                         👑 Creator

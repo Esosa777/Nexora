@@ -15,12 +15,14 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   
-  // Media / File Upload states
+  // Media & Mention states
   const [uploading, setUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([]);
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -182,7 +184,67 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     };
   }, [channelId, currentUser]);
 
-  // 3. Handle sending text/reply message
+  // 3. Handle input & check for @mentions
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setNewMessage(value);
+
+    // Check for @mention trigger
+    const mentionMatch = value.match(/@([a-zA-Z0-9_]*)$/);
+    if (mentionMatch) {
+      const query = mentionMatch[1];
+      setMentionQuery(query);
+      fetchMentionSuggestions(query);
+    } else {
+      setMentionQuery(null);
+      setMentionSuggestions([]);
+    }
+
+    if (!channelId || !currentUser) return;
+    const typingChannel = supabase.channel(`typing:${channelId}`);
+    
+    typingChannel.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        userId: currentUser.id,
+        username: currentUser.email?.split('@')[0] || 'Someone',
+        isTyping: true,
+      },
+    });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      typingChannel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          userId: currentUser.id,
+          username: currentUser.email?.split('@')[0] || 'Someone',
+          isTyping: false,
+        },
+      });
+    }, 2000);
+  };
+
+  const fetchMentionSuggestions = async (query: string) => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('username, avatar_url')
+      .ilike('username', `${query}%`)
+      .limit(5);
+
+    setMentionSuggestions(data || []);
+  };
+
+  const selectMention = (username: string) => {
+    const updated = newMessage.replace(/@([a-zA-Z0-9_]*)$/, `@${username} `);
+    setNewMessage(updated);
+    setMentionQuery(null);
+    setMentionSuggestions([]);
+  };
+
+  // 4. Handle sending text/reply message
   const handleSendMessage = async (e: React.FormEvent, mediaUrl?: string, mediaType?: string) => {
     e?.preventDefault?.();
     if ((!newMessage.trim() && !mediaUrl) || !channelId) return;
@@ -210,7 +272,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     }
   };
 
-  // 4. Handle file uploads with explicit error alerting
+  // 5. Handle file uploads
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -220,12 +282,11 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
     const filePath = `${channelId}/${fileName}`;
 
-    // Note: Ensure your Supabase storage bucket is named 'chat-media'
     const { error: uploadError } = await supabase.storage.from('chat-media').upload(filePath, file);
     
     if (uploadError) {
       console.error('Error uploading file:', uploadError);
-      alert('Upload failed! Make sure your Supabase Storage bucket is named "chat-media" and policies are set. Details: ' + uploadError.message);
+      alert('Upload failed! Details: ' + uploadError.message);
       setUploading(false);
       return;
     }
@@ -238,7 +299,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 5. Voice Note Recording Handler
+  // 6. Voice Note Recording Handler
   const startRecording = async () => {
     audioChunksRef.current = [];
     try {
@@ -270,7 +331,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
-      console.error('Microphone access denied or error:', err);
+      console.error('Microphone access denied:', err);
       alert('Could not access microphone.');
     }
   };
@@ -326,7 +387,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               return (
                 <div 
                   key={msg.id} 
-                  onContextMenu={(e) => { e.preventDefault(); setActiveMenuId(isMenuOpen ? null : msg.id); }}
                   className={`flex flex-col relative group ${isMe ? 'items-end' : 'items-start'}`}
                 >
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -340,7 +400,9 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                     <span className="text-xs text-gray-400 font-medium">{displayName}</span>
                   </div>
 
+                  {/* Scoped Context Menu container wrapper */}
                   <div className="relative">
+                    {/* Popup Context Menu anchored ONLY to this specific message bubble */}
                     {isMenuOpen && (
                       <div className={`absolute top-0 ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bg-gray-900 border border-gray-700 shadow-xl rounded-xl py-1 z-30 w-36 text-xs flex flex-col`}>
                         <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="px-3 py-2 text-left hover:bg-gray-800 transition">Reply</button>
@@ -369,7 +431,9 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                       </div>
                     ) : (
                       <div 
-                        className={`px-4 py-2.5 rounded-2xl max-w-md shadow-md flex flex-col gap-1 ${
+                        /* Right-click ONLY opens menu for THIS specific message */
+                        onContextMenu={(e) => { e.preventDefault(); setActiveMenuId(isMenuOpen ? null : msg.id); }}
+                        className={`px-4 py-2.5 rounded-2xl max-w-md shadow-md flex flex-col gap-1 cursor-pointer ${
                           isMe 
                             ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-br-sm' 
                             : 'bg-gray-800/90 border border-gray-700/60 text-gray-100 rounded-bl-sm'
@@ -424,6 +488,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         </div>
       )}
 
+      {/* Reply Banner */}
       {replyingTo && (
         <div className="px-4 py-2 bg-gray-900/90 border-t border-gray-800 flex justify-between items-center text-xs z-10">
           <div>
@@ -434,65 +499,86 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         </div>
       )}
 
-      {/* Message Input & Legible SVG Attachment Controls */}
+      {/* Message Input & Mention Suggestions Box */}
       {channelId && (
-        <form onSubmit={(e) => handleSendMessage(e)} className="p-4 bg-gray-900/95 border-t border-gray-800 flex items-center gap-3 z-10">
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileUpload} 
-            className="hidden" 
-          />
-          
-          {/* Legible File/Image Attach Button */}
-          <button 
-            type="button" 
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl transition flex items-center justify-center border border-gray-700 shadow-sm cursor-pointer"
-            title="Attach file or image"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-            </svg>
-          </button>
+        <div className="relative">
+          {/* Mention Suggestions Popup List */}
+          {mentionSuggestions.length > 0 && (
+            <div className="absolute bottom-full left-4 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-64 overflow-hidden z-30">
+              <div className="px-3 py-1.5 text-[10px] text-gray-400 bg-gray-800/80 border-b border-gray-700 font-semibold">
+                People matching @{mentionQuery}
+              </div>
+              {mentionSuggestions.map((user) => (
+                <button
+                  key={user.username}
+                  onClick={() => selectMention(user.username)}
+                  className="w-full px-3 py-2 text-left hover:bg-gray-800 text-xs flex items-center gap-2 transition"
+                >
+                  <div className="w-5 h-5 rounded-full bg-gray-700 overflow-hidden flex items-center justify-center font-bold text-[10px]">
+                    {user.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : user.username[0].toUpperCase()}
+                  </div>
+                  <span className="font-medium text-white">@{user.username}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={uploading ? "Uploading media..." : "Type a message..."}
-            disabled={!currentUser || uploading}
-            className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
-          />
+          <form onSubmit={(e) => handleSendMessage(e)} className="p-4 bg-gray-900/95 border-t border-gray-800 flex items-center gap-3 z-10">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+              className="hidden" 
+            />
+            
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl transition flex items-center justify-center border border-gray-700 shadow-sm cursor-pointer"
+              title="Attach file or image"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
 
-          {/* Legible Voice Note Button */}
-          <button 
-            type="button"
-            onMouseDown={startRecording}
-            onMouseUp={stopRecording}
-            onTouchStart={startRecording}
-            onTouchEnd={stopRecording}
-            className={`p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm ${
-              isRecording 
-                ? 'bg-red-600 border-red-500 animate-pulse text-white' 
-                : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700'
-            }`}
-            title="Hold to record voice note"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
-            </svg>
-          </button>
+            <input
+              type="text"
+              value={newMessage}
+              onChange={handleInputChange}
+              placeholder={uploading ? "Uploading media..." : "Type a message or @username..."}
+              disabled={!currentUser || uploading}
+              className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
+            />
 
-          <button 
-            type="submit"
-            disabled={!currentUser || uploading || (!newMessage.trim() && !isRecording)}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow text-white"
-          >
-            Send
-          </button>
-        </form>
+            <button 
+              type="button"
+              onMouseDown={startRecording}
+              onMouseUp={stopRecording}
+              onTouchStart={startRecording}
+              onTouchEnd={stopRecording}
+              className={`p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm ${
+                isRecording 
+                  ? 'bg-red-600 border-red-500 animate-pulse text-white' 
+                  : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700'
+              }`}
+              title="Hold to record voice note"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+              </svg>
+            </button>
+
+            <button 
+              type="submit"
+              disabled={!currentUser || uploading || (!newMessage.trim() && !isRecording)}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-5 py-2.5 rounded-xl font-medium transition text-sm shadow text-white"
+            >
+              Send
+            </button>
+          </form>
+        </div>
       )}
     </div>
   );

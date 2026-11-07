@@ -72,10 +72,10 @@ export default function ChatArea({ channelId }: { channelId: string }) {
             ...payload.new,
             profiles: senderProfile,
           };
-
+          
           setMessages((prev) => {
-            if (prev.some((msg) => msg.id === fullMessage.id)) return prev;
-            return [...prev, fullMessage];
+  if ((prev as any[]).some((msg: any) => msg.id === (fullMessage as any).id)) return prev;
+  return [...prev, fullMessage];
           });
         }
       )

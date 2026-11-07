@@ -108,7 +108,7 @@ function DownloadableImage({ src }: { src: string }) {
             handleDirectDownload(src, fileName);
             setDownloaded(true);
           }}
-          className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/40 backdrop-blur-sm cursor-pointer hover:bg-black/50 transition border-none bg-transparent w-full h-full"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/40 backdrop-blur-sm cursor-pointer hover:bg-black/50 transition border-none w-full h-full"
           title="Tap to download image"
         >
           <div className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-xl transition transform hover:scale-105">
@@ -128,6 +128,7 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [onlineCount, setOnlineCount] = useState<number>(1);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -219,6 +220,57 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
   }, []);
 
   useEffect(() => {
+    if (!channelId || !currentUser) return;
+
+    // Presence Channel for Online Member Count
+    const presenceChannel = supabase.channel(`room_presence:${channelId}`, {
+      config: {
+        presence: {
+          key: currentUser.id,
+        },
+      },
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        setOnlineCount(Object.keys(state).length);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({
+            user_id: currentUser.id,
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    // Typing Broadcast Channel
+    const typingChannel = supabase.channel(`typing:${channelId}`);
+    
+    typingChannel
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const { userId, username, isTyping } = payload.payload;
+        if (userId === currentUser.id) return;
+
+        setTypingUsers((prev) => {
+          if (isTyping && !prev.includes(username)) {
+            return [...prev, username];
+          } else if (!isTyping) {
+            return prev.filter((u) => u !== username);
+          }
+          return prev;
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(presenceChannel);
+      supabase.removeChannel(typingChannel);
+    };
+  }, [channelId, currentUser]);
+
+  useEffect(() => {
     if (!channelId) {
       setMessages([]);
       return;
@@ -227,8 +279,6 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
     setMessages([]);
 
     async function getMessages() {
-      console.log("Fetching messages for channel:", channelId);
-      
       const { data: rawMessages, error: msgError } = await supabase
         .from('messages')
         .select('*')
@@ -237,7 +287,6 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
 
       if (msgError) {
         console.error('Supabase error fetching messages:', msgError);
-        alert('Failed to load messages: ' + msgError.message);
         return;
       }
 
@@ -268,7 +317,6 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
         profiles: msg.user_id ? profilesMap[msg.user_id] || null : null
       }));
 
-      console.log("Fetched messages successfully:", messagesWithProfiles);
       setMessages(messagesWithProfiles);
       setTimeout(() => scrollToBottom(false), 50);
     }
@@ -560,7 +608,7 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
     >
       <div className={`absolute inset-0 ${customBackground ? 'bg-black/60' : 'bg-gray-950'} z-0 pointer-events-none`} />
 
-      {/* Channel Header with Member Management Modal Trigger */}
+      {/* Channel Header */}
       {channelId && (
         <div className="relative z-20 px-6 py-3 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between shadow-md backdrop-blur-sm">
           <div 
@@ -573,11 +621,18 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
             <div>
               <h2 className="text-sm font-bold text-white group-hover:text-blue-400 transition flex items-center gap-2">
                 {channelName || 'Channel Chat'}
-                <span className="text-[10px] font-normal text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full">
-                  Click for info
-                </span>
               </h2>
-              <p className="text-xs text-gray-400">Tap to manage members and permissions</p>
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                {typingUsers.length > 0 ? (
+                  <span className="text-blue-400 font-medium animate-pulse">
+                    {typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
+                  </span>
+                ) : (
+                  <span>
+                    <strong className="text-emerald-400 font-semibold">{onlineCount}</strong> online • Click to manage members
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -751,12 +806,6 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
           </button>
         )}
       </div>
-
-      {typingUsers.length > 0 && (
-        <div className="px-4 py-1 text-xs text-gray-400 italic bg-gray-900/50 z-10">
-          {typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
-        </div>
-      )}
 
       {replyingTo && (
         <div className="px-4 py-2 bg-gray-900/90 border-t border-gray-800 flex justify-between items-center text-xs z-10">

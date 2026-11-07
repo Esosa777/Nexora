@@ -151,7 +151,6 @@ export default function ChatArea({ channelId }: { channelId: string }) {
                 setShowScrollButton(true);
               }
 
-              // Play pop sound on incoming message if it's not from us
               if (fullMessage.user_id !== currentUser?.id) {
                 playPopSound();
               }
@@ -167,7 +166,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
               )
             );
           } else if (payload.eventType === 'DELETE') {
-            setMessages((prev) => prev.filter((msg) => msg.id === payload.old.id));
+            setMessages((prev) => prev.filter((msg) => msg.id !== payload.old.id));
           }
         }
       )
@@ -242,7 +241,7 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     e.preventDefault();
     if (!newMessage.trim() || !channelId) return;
 
-    playPopSound(); // Play sound on send
+    playPopSound();
 
     const { error } = await supabase.from('messages').insert([
       {
@@ -317,7 +316,10 @@ export default function ChatArea({ channelId }: { channelId: string }) {
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
               const isEditing = editingId === msg.id;
-              const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
+
+              // Fixed edited check: requires updated_at to be at least 3 seconds newer than created_at
+              const isEdited = msg.updated_at && msg.created_at && 
+                new Date(msg.updated_at).getTime() - new Date(msg.created_at).getTime() > 3000;
 
               return (
                 <div 

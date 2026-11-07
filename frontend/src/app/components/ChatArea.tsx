@@ -21,9 +21,15 @@ export default function ChatArea({ channelId }: { channelId: string }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch messages & subscribe to database inserts
+  // 2. Fetch messages & subscribe to database inserts (Clears old messages on channel switch)
   useEffect(() => {
-    if (!channelId) return;
+    if (!channelId) {
+      setMessages([]);
+      return;
+    }
+
+    // Clear messages instantly when switching channels to prevent bleeding
+    setMessages([]);
 
     async function getMessages() {
       const { data, error } = await supabase

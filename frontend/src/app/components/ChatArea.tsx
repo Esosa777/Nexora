@@ -261,6 +261,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     setMessages([]);
 
     async function getMessages() {
+      console.log("Fetching messages for channel:", channelId);
       const { data, error } = await supabase
         .from('messages')
         .select(`
@@ -278,8 +279,10 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('Error fetching messages:', error);
+        console.error('Supabase error fetching messages:', error);
+        alert('Failed to load messages: ' + error.message);
       } else {
+        console.log("Fetched messages successfully:", data);
         setMessages(data || []);
         setTimeout(() => scrollToBottom(false), 50);
       }

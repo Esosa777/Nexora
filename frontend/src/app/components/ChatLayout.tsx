@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import CreateChannelModal from './CreateChannelModal'; // Ensure this path matches your folder structure
+import CreateChannelModal from './CreateChannelModal';
 
 export default function ChatLayout() {
   const [chats, setChats] = useState<any[]>([]);
@@ -43,6 +43,67 @@ export default function ChatLayout() {
     fetchChannels();
   }, []);
 
+  // Fetch messages for the active channel & subscribe to real-time updates
+  useEffect(() => {
+    if (!activeId) return;
+
+    let chatSubscription: any = null;
+
+    async function fetchMessagesForChannel() {
+      // 1. Fetch existing messages from Supabase 'messages' table
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('channel_id', activeId)
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        setChats((prevChats) =>
+          prevChats.map((chat) =>
+            chat.id === activeId ? { ...chat, messages: data } : chat
+          )
+        );
+      }
+
+      // 2. Setup real-time listener for new incoming messages
+      chatSubscription = supabase
+        .channel(`room-chat:${activeId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `channel_id=eq.${activeId}`,
+          },
+          (payload) => {
+            const incomingMessage = payload.new;
+            setChats((prevChats) =>
+              prevChats.map((chat) => {
+                if (chat.id === activeId) {
+                  // Prevent duplicate messages if already appended locally
+                  const exists = chat.messages.some((m: any) => m.id === incomingMessage.id);
+                  if (exists) return chat;
+                  return { ...chat, messages: [...chat.messages, incomingMessage] };
+                }
+                return chat;
+              })
+            );
+          }
+        )
+        .subscribe();
+    }
+
+    fetchMessagesForChannel();
+
+    // Cleanup subscription on channel switch or unmount
+    return () => {
+      if (chatSubscription) {
+        supabase.removeChannel(chatSubscription);
+      }
+    };
+  }, [activeId]);
+
   // Handler to refresh channels and jump straight to the newly created channel
   const handleChannelCreated = async (newChannelId: string) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -78,24 +139,36 @@ export default function ChatLayout() {
     }
   }, [activeChat?.messages]);
 
-  const handleSendMessage = () => {
+  // Fully integrated Supabase message send handler
+  const handleSendMessage = async () => {
     if (inputText.trim() === '' || !activeId) return;
 
-    const newMessage = {
-      id: Date.now(),
-      user: 'You',
-      text: inputText,
-    };
+    const messageText = inputText.trim();
+    setInputText(''); // Clear input instantly for UI snappiness
 
-    setChats((prevChats) =>
-      prevChats.map((chat) =>
-        chat.id === activeId
-          ? { ...chat, messages: [...chat.messages, newMessage] }
-          : chat
-      )
-    );
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("You must be logged in to send messages.");
+        return;
+      }
 
-    setInputText('');
+      // Insert message into Supabase database table
+      const { error } = await supabase
+        .from('messages')
+        .insert({
+          channel_id: activeId,
+          user_id: user.id,
+          content: messageText,
+        });
+
+      if (error) {
+        console.error("Error sending message:", error.message);
+        alert("Failed to send message: " + error.message);
+      }
+    } catch (err: any) {
+      console.error("Unexpected error sending message:", err.message);
+    }
   };
 
   return (
@@ -126,7 +199,7 @@ export default function ChatLayout() {
               <p className="font-semibold text-sm">{chat.name}</p>
               <p className={`text-xs truncate ${chat.id === activeId ? 'text-indigo-100' : 'text-gray-400'}`}>
                 {chat.messages && chat.messages.length > 0
-                  ? chat.messages[chat.messages.length - 1].text
+                  ? chat.messages[chat.messages.length - 1].content || chat.messages[chat.messages.length - 1].text
                   : chat.description || 'No messages yet'}
               </p>
             </div>
@@ -160,18 +233,17 @@ export default function ChatLayout() {
               No messages yet. Start the conversation.
             </div>
           )}
-          {activeChat?.messages?.map((msg: any) => (
-            <div key={msg.id} className={`flex flex-col ${msg.user === 'You' ? 'items-end' : 'items-start'}`}>
-              <span className="text-[10px] text-gray-500 mb-1 px-1">{msg.user}</span>
-              <div
-                className={`p-3 rounded-2xl max-w-md w-fit shadow-md text-sm ${
-                  msg.user === 'You' ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-gray-800 text-gray-200 rounded-bl-sm border border-gray-700'
-                }`}
-              >
-                {msg.text}
+          {activeChat?.messages?.map((msg: any) => {
+            // Support both Supabase schema ('content') and mock schema ('text')
+            const msgContent = msg.content || msg.text;
+            return (
+              <div key={msg.id} className="flex flex-col items-start">
+                <div className="p-3 rounded-2xl max-w-md w-fit shadow-md text-sm bg-gray-800 text-gray-200 rounded-bl-sm border border-gray-700">
+                  {msgContent}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Message Input Bar */}

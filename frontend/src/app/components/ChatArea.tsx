@@ -55,6 +55,38 @@ function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDura
   );
 }
 
+function DownloadableImage({ src }: { src: string }) {
+  const [downloaded, setDownloaded] = useState(false);
+
+  return (
+    <div className="relative group rounded-lg overflow-hidden max-h-60 mt-1 flex items-center justify-center bg-black/50">
+      <img 
+        src={src} 
+        alt="attachment" 
+        className={`w-full h-full object-cover transition duration-300 ${!downloaded ? 'filter blur-md scale-105 opacity-60' : 'filter blur-0 opacity-100'}`} 
+      />
+      {!downloaded && (
+        <a 
+          href={src} 
+          download 
+          target="_blank" 
+          rel="noreferrer"
+          onClick={() => setDownloaded(true)}
+          className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/40 backdrop-blur-sm cursor-pointer hover:bg-black/50 transition"
+          title="Tap to download image"
+        >
+          <div className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-xl transition transform hover:scale-105">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          </div>
+          <span className="text-xs font-semibold text-white tracking-wide shadow-text">Tap to Download</span>
+        </a>
+      )}
+    </div>
+  );
+}
+
 export default function ChatArea({ channelId, customBackground }: { channelId: string; customBackground?: string }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -85,7 +117,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close context menu on outside click
   useEffect(() => {
     const handleClickOutside = () => setActiveMenuId(null);
     window.addEventListener('click', handleClickOutside);
@@ -572,10 +603,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                         )}
 
                         {msg.media_type === 'image' && (
-                          <div className="flex flex-col gap-1 mt-1">
-                            <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover" />
-                            <a href={msg.media_url} download target="_blank" rel="noreferrer" className="text-[10px] text-blue-200 self-end hover:underline">Download Image</a>
-                          </div>
+                          <DownloadableImage src={msg.media_url} />
                         )}
                         {msg.media_type === 'video' && (
                           <div className="flex flex-col gap-1 mt-1">

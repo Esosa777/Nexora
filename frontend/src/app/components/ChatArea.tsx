@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
+import MemberManagementModal from './MemberManagementModal';
 
 // Helper for direct background downloads without page redirection
 async function handleDirectDownload(url: string, filename: string) {
@@ -122,13 +123,15 @@ function DownloadableImage({ src }: { src: string }) {
   );
 }
 
-export default function ChatArea({ channelId, customBackground }: { channelId: string; customBackground?: string }) {
+export default function ChatArea({ channelId, channelName, customBackground }: { channelId: string; channelName?: string; customBackground?: string }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
 
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<any | null>(null);
@@ -226,7 +229,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     async function getMessages() {
       console.log("Fetching messages for channel:", channelId);
       
-      // 1. Fetch raw messages without relational embeds to avoid schema cache errors
       const { data: rawMessages, error: msgError } = await supabase
         .from('messages')
         .select('*')
@@ -244,7 +246,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         return;
       }
 
-      // 2. Extract unique user IDs and fetch their profiles independently
       const userIds = Array.from(new Set(rawMessages.map(m => m.user_id).filter(Boolean)));
       let profilesMap: Record<string, any> = {};
 
@@ -262,7 +263,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         }
       }
 
-      // 3. Attach profiles to messages
       const messagesWithProfiles = rawMessages.map(msg => ({
         ...msg,
         profiles: msg.user_id ? profilesMap[msg.user_id] || null : null
@@ -560,6 +560,40 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     >
       <div className={`absolute inset-0 ${customBackground ? 'bg-black/60' : 'bg-gray-950'} z-0 pointer-events-none`} />
 
+      {/* Channel Header with Member Management Modal Trigger */}
+      {channelId && (
+        <div className="relative z-20 px-6 py-3 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between shadow-md backdrop-blur-sm">
+          <div 
+            onClick={() => setIsMemberModalOpen(true)}
+            className="flex items-center gap-3 cursor-pointer group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 flex items-center justify-center font-bold text-lg group-hover:bg-blue-600/30 transition">
+              #
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white group-hover:text-blue-400 transition flex items-center gap-2">
+                {channelName || 'Channel Chat'}
+                <span className="text-[10px] font-normal text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full">
+                  Click for info
+                </span>
+              </h2>
+              <p className="text-xs text-gray-400">Tap to manage members and permissions</p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setIsMemberModalOpen(true)}
+            className="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+          >
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+            Members
+          </button>
+        </div>
+      )}
+
+      {/* Chat Messages Feed */}
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -744,6 +778,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         </div>
       )}
 
+      {/* Chat Input Bar */}
       {channelId && (
         <div className="relative">
           {mentionSuggestions.length > 0 && (
@@ -861,6 +896,13 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
           </form>
         </div>
       )}
+
+      {/* Member Management Modal */}
+      <MemberManagementModal
+        isOpen={isMemberModalOpen}
+        onClose={() => setIsMemberModalOpen(false)}
+        channelId={channelId}
+      />
     </div>
   );
 }

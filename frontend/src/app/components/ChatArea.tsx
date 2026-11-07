@@ -1,12 +1,32 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
 
-function AudioMessagePlayer({ src, durationText }: { src: string; durationText?: string }) {
+function AudioMessagePlayer({ src, initialDuration }: { src: string; initialDuration?: string }) {
+  const [duration, setDuration] = useState<string>(initialDuration || '0:00');
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      const dur = audioRef.current.duration;
+      if (dur && isFinite(dur) && !isNaN(dur)) {
+        const mins = Math.floor(dur / 60);
+        const secs = Math.floor(dur % 60);
+        setDuration(`${mins}:${secs < 10 ? '0' : ''}${secs}`);
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col gap-1 mt-1">
-      <audio controls src={src} className="h-8 max-w-[220px]" />
+      <audio 
+        ref={audioRef}
+        controls 
+        src={src} 
+        onLoadedMetadata={handleLoadedMetadata}
+        className="h-8 max-w-[220px]" 
+      />
       <span className="text-[10px] text-gray-300 self-end select-none">
-        Voice Note • {durationText || 'Audio'}
+        Voice Note • {duration}
       </span>
     </div>
   );
@@ -423,7 +443,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               const isMenuOpen = activeMenuId === msg.id;
               const repliedToMsg = msg.reply_to_id ? messages.find(m => m.id === msg.reply_to_id) : null;
 
-              let voiceDuration = '';
+              let voiceDuration = '0:00';
               let cleanContent = msg.content;
               if (msg.media_type === 'audio' && msg.content && msg.content.includes('[Voice Note duración:')) {
                 const match = msg.content.match(/\[Voice Note duración: (.*?)\]/);
@@ -496,7 +516,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                           <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover mt-1" />
                         )}
                         {msg.media_type === 'audio' && (
-                          <AudioMessagePlayer src={msg.media_url} durationText={voiceDuration} />
+                          <AudioMessagePlayer src={msg.media_url} initialDuration={voiceDuration} />
                         )}
                         {msg.media_type === 'file' && (
                           <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-blue-200 text-xs mt-1 block">📎 Download Attachment</a>
@@ -627,23 +647,30 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
             />
 
-            <button 
-              type="button"
-              onMouseDown={startRecording}
-              onMouseUp={stopRecording}
-              onTouchStart={startRecording}
-              onTouchEnd={stopRecording}
-              className={`p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm ${
-                isRecording 
-                  ? 'bg-red-600 border-red-500 animate-pulse text-white' 
-                  : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700'
-              }`}
-              title="Hold to record voice note"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
-              </svg>
-            </button>
+            {/* Tap-to-Record / Tap-to-Stop Toggle Button */}
+            {isRecording ? (
+              <button 
+                type="button"
+                onClick={stopRecording}
+                className="p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm bg-red-600 border-red-500 animate-pulse text-white cursor-pointer"
+                title="Stop recording"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              <button 
+                type="button"
+                onClick={startRecording}
+                className="p-2.5 rounded-xl transition flex items-center justify-center border shadow-sm bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700 cursor-pointer"
+                title="Record voice note"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+                </svg>
+              </button>
+            )}
 
             <button 
               type="submit"

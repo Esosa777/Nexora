@@ -1,33 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
 
-function AudioMessagePlayer({ src }: { src: string }) {
-  const [duration, setDuration] = useState<string>('Voice Note');
-  const audioRef = useRef<HTMLAudioElement>(null);
-
-  const updateDuration = () => {
-    if (audioRef.current) {
-      const dur = audioRef.current.duration;
-      if (dur && isFinite(dur) && !isNaN(dur)) {
-        const mins = Math.floor(dur / 60);
-        const secs = Math.floor(dur % 60);
-        setDuration(`Voice Note • ${mins}:${secs < 10 ? '0' : ''}${secs}`);
-      }
-    }
-  };
-
+function AudioMessagePlayer({ src, durationText }: { src: string; durationText?: string }) {
   return (
     <div className="flex flex-col gap-1 mt-1">
-      <audio 
-        ref={audioRef}
-        controls 
-        src={src} 
-        onLoadedMetadata={updateDuration}
-        onDurationChange={updateDuration}
-        className="h-8 max-w-[220px]" 
-      />
+      <audio controls src={src} className="h-8 max-w-[220px]" />
       <span className="text-[10px] text-gray-300 self-end select-none">
-        {duration}
+        Voice Note • {durationText || 'Audio'}
       </span>
     </div>
   );
@@ -48,6 +27,9 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   
   const [uploading, setUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -270,16 +252,17 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     setMentionSuggestions([]);
   };
 
-  const handleSendMessage = async (e: React.FormEvent, mediaUrl?: string, mediaType?: string) => {
+  const handleSendMessage = async (e: React.FormEvent, mediaUrl?: string, mediaType?: string, contentOverride?: string) => {
     e?.preventDefault?.();
-    if ((!newMessage.trim() && !mediaUrl) || !channelId) return;
+    const finalContent = contentOverride || newMessage;
+    if ((!finalContent.trim() && !mediaUrl) || !channelId) return;
 
     playPopSound();
 
     const { error } = await supabase.from('messages').insert([
       {
         channel_id: channelId,
-        content: newMessage,
+        content: finalContent,
         user_id: currentUser?.id ?? null,
         media_url: mediaUrl || null,
         media_type: mediaType || null,
@@ -326,6 +309,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
   const startRecording = async () => {
     audioChunksRef.current = [];
+    setRecordingSeconds(0);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: { 
@@ -351,6 +335,9 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
       };
 
       mediaRecorder.onstop = async () => {
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        const finalSecs = recordingSeconds;
+
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const fileName = `voice_${Math.random().toString(36).substring(2)}.webm`;
         const filePath = `${channelId}/${fileName}`;
@@ -361,7 +348,11 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
           alert('Voice note upload failed: ' + error.message);
         } else {
           const { data } = supabase.storage.from('chat-media').getPublicUrl(filePath);
-          await handleSendMessage({} as any, data.publicUrl, 'audio');
+          const mins = Math.floor(finalSecs / 60);
+          const secs = finalSecs % 60;
+          const durationStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+          
+          await handleSendMessage({} as any, data.publicUrl, 'audio', `[Voice Note duración: ${durationStr}]`);
         }
         setUploading(false);
         stream.getTracks().forEach(track => track.stop());
@@ -369,6 +360,11 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
 
       mediaRecorder.start();
       setIsRecording(true);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+
     } catch (err) {
       console.error('Microphone access denied:', err);
       alert('Could not access microphone.');
@@ -379,6 +375,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     }
   };
 
@@ -421,6 +418,16 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
               const isMenuOpen = activeMenuId === msg.id;
               const repliedToMsg = msg.reply_to_id ? messages.find(m => m.id === msg.reply_to_id) : null;
+
+              let voiceDuration = '';
+              let cleanContent = msg.content;
+              if (msg.media_type === 'audio' && msg.content && msg.content.includes('[Voice Note duración:')) {
+                const match = msg.content.match(/\[Voice Note duración: (.*?)\]/);
+                if (match) {
+                  voiceDuration = match[1];
+                  cleanContent = ''; // Hide raw tag text, display clean audio player with duration
+                }
+              }
 
               return (
                 <div 
@@ -485,13 +492,13 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                           <img src={msg.media_url} alt="attachment" className="rounded-lg max-h-60 object-cover mt-1" />
                         )}
                         {msg.media_type === 'audio' && (
-                          <AudioMessagePlayer src={msg.media_url} />
+                          <AudioMessagePlayer src={msg.media_url} durationText={voiceDuration} />
                         )}
                         {msg.media_type === 'file' && (
                           <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-blue-200 text-xs mt-1 block">📎 Download Attachment</a>
                         )}
 
-                        {msg.content && <p className="text-sm leading-relaxed break-words">{msg.content}</p>}
+                        {cleanContent && <p className="text-sm leading-relaxed break-words">{cleanContent}</p>}
                         
                         <div className={`flex items-center gap-1.5 text-[10px] select-none ${isMe ? 'text-blue-200 justify-end' : 'text-gray-400 justify-start'}`}>
                           {isEdited && <span>(edited)</span>}
@@ -611,7 +618,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               autoComplete="new-password"
               value={newMessage}
               onChange={handleInputChange}
-              placeholder={uploading ? "Uploading media..." : "Type a message or @username..."}
+              placeholder={isRecording ? `Recording voice note (${recordingSeconds}s)...` : uploading ? "Uploading media..." : "Type a message or @username..."}
               disabled={!currentUser || uploading}
               className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
             />

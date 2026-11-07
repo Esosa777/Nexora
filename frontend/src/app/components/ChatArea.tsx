@@ -41,6 +41,12 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const formatDuration = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
   const playPopSound = () => {
     try {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -348,9 +354,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
           alert('Voice note upload failed: ' + error.message);
         } else {
           const { data } = supabase.storage.from('chat-media').getPublicUrl(filePath);
-          const mins = Math.floor(finalSecs / 60);
-          const secs = finalSecs % 60;
-          const durationStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+          const durationStr = formatDuration(finalSecs);
           
           await handleSendMessage({} as any, data.publicUrl, 'audio', `[Voice Note duración: ${durationStr}]`);
         }
@@ -425,7 +429,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
                 const match = msg.content.match(/\[Voice Note duración: (.*?)\]/);
                 if (match) {
                   voiceDuration = match[1];
-                  cleanContent = ''; // Hide raw tag text, display clean audio player with duration
+                  cleanContent = ''; 
                 }
               }
 
@@ -618,7 +622,7 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               autoComplete="new-password"
               value={newMessage}
               onChange={handleInputChange}
-              placeholder={isRecording ? `Recording voice note (${recordingSeconds}s)...` : uploading ? "Uploading media..." : "Type a message or @username..."}
+              placeholder={isRecording ? `Recording voice note (${formatDuration(recordingSeconds)})...` : uploading ? "Uploading media..." : "Type a message or @username..."}
               disabled={!currentUser || uploading}
               className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
             />

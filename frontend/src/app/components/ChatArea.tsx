@@ -98,13 +98,14 @@ export default function ChatArea({ channelId }: { channelId: string }) {
             senderProfile = data;
           }
 
-          const fullMessage = {
+          // Explicitly typed as 'any' to satisfy TypeScript build checks
+          const fullMessage: any = {
             ...payload.new,
             profiles: senderProfile,
           };
           
           setMessages((prev) => {
-            if ((prev as any[]).some((msg: any) => msg.id === (fullMessage as any).id)) return prev;
+            if ((prev as any[]).some((msg: any) => msg.id === fullMessage.id)) return prev;
             const updatedMessages = [...prev, fullMessage];
 
             // Smart scroll: auto-scroll if it's your message or you're already at the bottom

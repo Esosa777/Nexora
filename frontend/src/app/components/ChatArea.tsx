@@ -1,18 +1,17 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
 
-// Helper component to render audio messages with automatic duration formatting
 function AudioMessagePlayer({ src }: { src: string }) {
-  const [duration, setDuration] = useState<string>('0:00');
+  const [duration, setDuration] = useState<string>('Voice Note');
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const handleLoadedMetadata = () => {
+  const updateDuration = () => {
     if (audioRef.current) {
       const dur = audioRef.current.duration;
-      if (!isNaN(dur)) {
+      if (dur && isFinite(dur) && !isNaN(dur)) {
         const mins = Math.floor(dur / 60);
         const secs = Math.floor(dur % 60);
-        setDuration(`${mins}:${secs < 10 ? '0' : ''}${secs}`);
+        setDuration(`Voice Note • ${mins}:${secs < 10 ? '0' : ''}${secs}`);
       }
     }
   };
@@ -23,11 +22,12 @@ function AudioMessagePlayer({ src }: { src: string }) {
         ref={audioRef}
         controls 
         src={src} 
-        onLoadedMetadata={handleLoadedMetadata}
+        onLoadedMetadata={updateDuration}
+        onDurationChange={updateDuration}
         className="h-8 max-w-[220px]" 
       />
       <span className="text-[10px] text-gray-300 self-end select-none">
-        Voice Note • {duration}
+        {duration}
       </span>
     </div>
   );
@@ -41,13 +41,11 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Advanced chat states
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<any | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   
-  // Media, Mention & Emoji states
   const [uploading, setUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -61,7 +59,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Subtle pop sound effect
   const playPopSound = () => {
     try {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -101,7 +98,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     if (!isFarFromBottom) setUnreadCount(0);
   };
 
-  // 1. Track logged-in user
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setCurrentUser(user);
@@ -114,7 +110,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch messages & subscribe
   useEffect(() => {
     if (!channelId) {
       setMessages([]);
@@ -217,7 +212,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     };
   }, [channelId, currentUser]);
 
-  // 3. Handle input & check for @mentions
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setNewMessage(value);
@@ -276,7 +270,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     setMentionSuggestions([]);
   };
 
-  // 4. Handle sending text/reply message
   const handleSendMessage = async (e: React.FormEvent, mediaUrl?: string, mediaType?: string) => {
     e?.preventDefault?.();
     if ((!newMessage.trim() && !mediaUrl) || !channelId) return;
@@ -305,7 +298,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     }
   };
 
-  // 5. Handle file uploads
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -332,7 +324,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 6. High-Quality Voice Note Recording Handler
   const startRecording = async () => {
     audioChunksRef.current = [];
     try {
@@ -411,7 +402,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
     >
       <div className={`absolute inset-0 ${customBackground ? 'bg-black/60' : 'bg-gray-950'} z-0 pointer-events-none`} />
 
-      {/* Messages Feed Container */}
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -533,7 +523,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         </div>
       )}
 
-      {/* Reply Banner */}
       {replyingTo && (
         <div className="px-4 py-2 bg-gray-900/90 border-t border-gray-800 flex justify-between items-center text-xs z-10">
           <div>
@@ -544,10 +533,8 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
         </div>
       )}
 
-      {/* Message Input, Emoji Picker & Mention Suggestions Box */}
       {channelId && (
         <div className="relative">
-          {/* Mention Suggestions Popup */}
           {mentionSuggestions.length > 0 && (
             <div className="absolute bottom-full left-4 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-64 overflow-hidden z-30">
               <div className="px-3 py-1.5 text-[10px] text-gray-400 bg-gray-800/80 border-b border-gray-700 font-semibold">
@@ -568,7 +555,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
             </div>
           )}
 
-          {/* Emoji Picker Popup */}
           {showEmojiPicker && (
             <div className="absolute bottom-full left-16 mb-2 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-3 grid grid-cols-6 gap-2 z-30 w-64">
               <div className="col-span-6 pb-1 mb-1 border-b border-gray-800 text-[10px] text-gray-400 font-semibold">
@@ -598,7 +584,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               className="hidden" 
             />
             
-            {/* Attach File Button */}
             <button 
               type="button" 
               onClick={() => fileInputRef.current?.click()}
@@ -611,7 +596,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               </svg>
             </button>
 
-            {/* Emoji Picker Toggle Button */}
             <button 
               type="button" 
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
@@ -632,7 +616,6 @@ export default function ChatArea({ channelId, customBackground }: { channelId: s
               className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 text-sm shadow-inner border border-gray-700/50"
             />
 
-            {/* Voice Note Recording Button */}
             <button 
               type="button"
               onMouseDown={startRecording}

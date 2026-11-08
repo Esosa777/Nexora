@@ -214,6 +214,34 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
     if (!isFarFromBottom) setUnreadCount(0);
   };
 
+  // Real-time Typing Indicator Broadcast Listener
+  useEffect(() => {
+    if (!channelId || !currentUser) return;
+
+    const typingChannel = supabase.channel(`room_typing:${channelId}`, {
+      config: {
+        broadcast: { self: false },
+      },
+    });
+
+    typingChannel
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const { username, isTyping } = payload.payload;
+        setTypingUsers((prev) => {
+          if (isTyping) {
+            return prev.includes(username) ? prev : [...prev, username];
+          } else {
+            return prev.filter((u) => u !== username);
+          }
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(typingChannel);
+    };
+  }, [channelId, currentUser]);
+
   useEffect(() => {
     if (!channelId || !currentUser) return;
 
@@ -379,7 +407,7 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
     }
 
     if (!channelId || !currentUser) return;
-    const typingChannel = supabase.channel(`typing:${channelId}`);
+    const typingChannel = supabase.channel(`room_typing:${channelId}`);
     
     typingChannel.send({
       type: 'broadcast',

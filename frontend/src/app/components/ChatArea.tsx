@@ -131,6 +131,7 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
   const [onlineCount, setOnlineCount] = useState<number>(1);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [reactionsMap, setReactionsMap] = useState<Record<string, any[]>>({});
 
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
 
@@ -275,10 +276,12 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
   useEffect(() => {
     if (!channelId) {
       setMessages([]);
+      setReactionsMap({});
       return;
     }
 
     setMessages([]);
+    setReactionsMap({});
 
     async function getMessages() {
       const { data: rawMessages, error: msgError } = await supabase
@@ -296,6 +299,21 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
         setMessages([]);
         return;
       }
+
+      const messageIds = rawMessages.map(m => m.id);
+      
+      // Fetch reactions
+      const { data: reactionsData } = await supabase
+        .from('message_reactions')
+        .select('*')
+        .in('message_id', messageIds);
+
+      const rMap: Record<string, any[]> = {};
+      reactionsData?.forEach(r => {
+        if (!rMap[r.message_id]) rMap[r.message_id] = [];
+        rMap[r.message_id].push(r);
+      });
+      setReactionsMap(rMap);
 
       const userIds = Array.from(new Set(rawMessages.map(m => m.user_id).filter(Boolean)));
       let profilesMap: Record<string, any> = {};
@@ -387,10 +405,74 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
       )
       .subscribe();
 
+    // Reaction real-time sync subscription
+    const reactionSubscription = supabase
+      .channel(`room_reactions:${channelId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_reactions',
+        },
+        async () => {
+          if (messages.length === 0) return;
+          const { data: reactionsData } = await supabase
+            .from('message_reactions')
+            .select('*')
+            .in('message_id', messages.map(m => m.id));
+
+          const rMap: Record<string, any[]> = {};
+          reactionsData?.forEach(r => {
+            if (!rMap[r.message_id]) rMap[r.message_id] = [];
+            rMap[r.message_id].push(r);
+          });
+          setReactionsMap(rMap);
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channelSubscription);
+      supabase.removeChannel(reactionSubscription);
     };
   }, [channelId, currentUser]);
+
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    if (!currentUser) return;
+
+    const existingReactions = reactionsMap[messageId] || [];
+    const existing = existingReactions.find(
+      r => r.user_id === currentUser.id && r.emoji === emoji
+    );
+
+    if (existing) {
+      setReactionsMap(prev => ({
+        ...prev,
+        [messageId]: (prev[messageId] || []).filter(r => r.id !== existing.id)
+      }));
+      await supabase.from('message_reactions').delete().eq('id', existing.id);
+    } else {
+      const tempId = Math.random().toString();
+      setReactionsMap(prev => ({
+        ...prev,
+        [messageId]: [...(prev[messageId] || []), { id: tempId, message_id: messageId, user_id: currentUser.id, emoji }]
+      }));
+      
+      const { data } = await supabase
+        .from('message_reactions')
+        .insert([{ message_id: messageId, user_id: currentUser.id, emoji }])
+        .select()
+        .single();
+
+      if (data) {
+        setReactionsMap(prev => ({
+          ...prev,
+          [messageId]: (prev[messageId] || []).map(r => r.id === tempId ? data : r)
+        }));
+      }
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -791,6 +873,49 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* Message Reactions UI */}
+                  <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                    {Object.entries(
+                      (reactionsMap[msg.id] || []).reduce((acc, r) => {
+                        acc[r.emoji] = acc[r.emoji] || { count: 0, hasReacted: false };
+                        acc[r.emoji].count += 1;
+                        if (r.user_id === currentUser?.id) acc[r.emoji].hasReacted = true;
+                        return acc;
+                      }, {} as Record<string, { count: number; hasReacted: boolean }>)
+                    ).map(([emoji, data]: [string, any]) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleToggleReaction(msg.id, emoji)}
+                        className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 border transition cursor-pointer ${
+                          data.hasReacted 
+                            ? 'bg-blue-600/30 border-blue-500 text-blue-200' 
+                            : 'bg-gray-800/80 border-gray-700 text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        <span>{emoji}</span>
+                        <span className="font-semibold">{data.count}</span>
+                      </button>
+                    ))}
+
+                    {/* Quick Add Reaction Button */}
+                    <div className="relative group/react inline-block">
+                      <button className="px-2 py-0.5 rounded-full text-xs bg-gray-800/40 hover:bg-gray-700 border border-gray-700/50 text-gray-400 hover:text-white transition cursor-pointer">
+                        +
+                      </button>
+                      <div className="absolute bottom-full mb-1 left-0 hidden group-hover/react:flex items-center gap-1 bg-gray-900 border border-gray-700 p-1 rounded-xl shadow-xl z-30">
+                        {['👍', '❤️', '🔥', '😂', '🚀', '👀'].map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => handleToggleReaction(msg.id, emoji)}
+                            className="w-7 h-7 hover:bg-gray-800 rounded-lg flex items-center justify-center text-sm transition cursor-pointer border-none bg-transparent"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );

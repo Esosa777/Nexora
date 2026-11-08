@@ -33,7 +33,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-gray-950 relative overflow-hidden">
-      {/* Top bar user controls - Fixed with z-50 and pointer-events-auto */}
+      {/* Top bar user controls */}
       <div className="absolute top-3 right-4 z-50 pointer-events-auto flex items-center gap-3 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-gray-800 text-xs text-white shadow-lg">
         {user ? (
           <>
@@ -75,10 +75,13 @@ export default function Home() {
         />
       )}
 
+      {/* Sidebar passes the selected channel ID up to Home */}
       <ChatSidebar 
-        onSelectChannel={setSelectedChannelId} 
+        onSelectChannel={(id) => setSelectedChannelId(id)} 
         activeChannelId={selectedChannelId} 
       />
+      
+      {/* ChatArea receives the active channel ID to load messages */}
       <ChatArea channelId={selectedChannelId} />
     </div>
   );

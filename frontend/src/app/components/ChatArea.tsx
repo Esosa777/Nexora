@@ -235,11 +235,11 @@ useEffect(() => {
       });
 
     // 3. Cleanup function safely inside the same scope
-    return () => {
+    return () => { // Hey!!!
       supabase.removeChannel(presenceChannel);
     };
   }, [channelId, currentUser]);
-  
+
   useEffect(() => {
     if (!channelId) {
       setMessages([]);

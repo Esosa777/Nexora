@@ -16,8 +16,7 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
     });
   }, []);
 
-  const loadUserChannels = async (userId: string) => {
-    // Fetch channels where user is an active member
+  const loadUserChannels = async (userId: string, selectNewId?: string) => {
     const { data: memberships, error } = await supabase
       .from('channel_members')
       .select('channel_id, channels(*)')
@@ -33,7 +32,14 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
       const userChannels = memberships.map((m: any) => m.channels).filter(Boolean);
       setChannels(userChannels);
       
-      // Auto-select the first channel if none is currently active
+      if (selectNewId) {
+        const found = userChannels.find((c: any) => c.id === selectNewId);
+        if (found) {
+          onSelectChannel(found.id, found.name);
+          return;
+        }
+      }
+
       if (userChannels.length > 0 && !activeChannelId) {
         onSelectChannel(userChannels[0].id, userChannels[0].name);
       }
@@ -125,8 +131,9 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
         onClose={() => setIsCreateOpen(false)}
         onChannelCreated={(newChannelId) => {
           setIsCreateOpen(false);
-          if (currentUser) loadUserChannels(currentUser.id);
-          onSelectChannel(newChannelId, 'New Channel');
+          if (currentUser) {
+            loadUserChannels(currentUser.id, newChannelId);
+          }
         }}
       />
 
@@ -136,8 +143,9 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
         onClose={() => setIsDiscoverOpen(false)}
         onJoinedChannel={(joinedChannelId) => {
           setIsDiscoverOpen(false);
-          if (currentUser) loadUserChannels(currentUser.id);
-          onSelectChannel(joinedChannelId, 'Channel');
+          if (currentUser) {
+            loadUserChannels(currentUser.id, joinedChannelId);
+          }
         }}
       />
     </div>

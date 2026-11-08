@@ -3,48 +3,25 @@ import { supabase } from '../lib/supabase';
 import CreateChannelModal from './CreateChannelModal';
 import ChannelDiscoveryModal from './ChannelDiscoveryModal';
 
-export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelectChannel: (id: string, name: string) => void; activeChannelId: string }) {
-  const [channels, setChannels] = useState<any[]>([]);
+interface SidebarProps {
+  channels: any[];
+  selectedChannelId: string | null;
+  onSelectChannel: (id: string, name: string) => void;
+  currentUser: any;
+  onLogout: () => Promise<void>;
+  onChannelCreated: (newChannel: any) => void;
+}
+
+export default function Sidebar({
+  channels,
+  selectedChannelId,
+  onSelectChannel,
+  currentUser,
+  onLogout,
+  onChannelCreated,
+}: SidebarProps) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDiscoverOpen, setIsDiscoverOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setCurrentUser(user);
-      if (user) loadUserChannels(user.id);
-    });
-  }, []);
-
-  const loadUserChannels = async (userId: string, selectNewId?: string) => {
-    const { data: memberships, error } = await supabase
-      .from('channel_members')
-      .select('channel_id, channels(*)')
-      .eq('user_id', userId)
-      .eq('status', 'active');
-
-    if (error) {
-      console.error('Error loading user channels:', error);
-      return;
-    }
-
-    if (memberships) {
-      const userChannels = memberships.map((m: any) => m.channels).filter(Boolean);
-      setChannels(userChannels);
-      
-      if (selectNewId) {
-        const found = userChannels.find((c: any) => c.id === selectNewId);
-        if (found) {
-          onSelectChannel(found.id, found.name);
-          return;
-        }
-      }
-
-      if (userChannels.length > 0 && !activeChannelId) {
-        onSelectChannel(userChannels[0].id, userChannels[0].name);
-      }
-    }
-  };
 
   return (
     <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-full text-white">
@@ -74,11 +51,14 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
         {channels.length === 0 ? (
           <div className="text-center py-10 px-4 text-xs text-gray-500 space-y-2">
             <p>No channels joined yet.</p>
-            <p>Click <span className="text-blue-400 font-semibold">Browse</span> to discover rooms or <span className="text-blue-400 font-semibold">+ New</span> to create your own!</p>
+            <p>
+              Click <span className="text-blue-400 font-semibold">Browse</span> to discover rooms or{' '}
+              <span className="text-blue-400 font-semibold">+ New</span> to create your own!
+            </p>
           </div>
         ) : (
           channels.map((channel) => {
-            const isActive = channel.id === activeChannelId;
+            const isActive = channel.id === selectedChannelId;
             return (
               <button
                 key={channel.id}
@@ -113,10 +93,7 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
             User: <span className="text-white font-medium">{currentUser.email?.split('@')[0]}</span>
           </div>
           <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              window.location.reload();
-            }}
+            onClick={onLogout}
             className="text-red-400 hover:text-red-300 transition cursor-pointer"
             title="Sign out"
           >
@@ -129,11 +106,9 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
       <CreateChannelModal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        onChannelCreated={(newChannelId) => {
+        onChannelCreated={(newChannel) => {
           setIsCreateOpen(false);
-          if (currentUser) {
-            loadUserChannels(currentUser.id, newChannelId);
-          }
+          onChannelCreated(newChannel);
         }}
       />
 
@@ -143,9 +118,7 @@ export default function Sidebar({ onSelectChannel, activeChannelId }: { onSelect
         onClose={() => setIsDiscoverOpen(false)}
         onJoinedChannel={(joinedChannelId) => {
           setIsDiscoverOpen(false);
-          if (currentUser) {
-            loadUserChannels(currentUser.id, joinedChannelId);
-          }
+          onChannelCreated(joinedChannelId);
         }}
       />
     </div>

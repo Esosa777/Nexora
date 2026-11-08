@@ -2,17 +2,20 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface AuthModalProps {
-  onAuthSuccess: () => void;
+  isOpen: boolean;
   onClose: () => void;
+  onAuthSuccess: () => void;
 }
 
-export default function AuthModal({ onAuthSuccess, onClose }: AuthModalProps) {
+export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  if (!isOpen) return null;
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();

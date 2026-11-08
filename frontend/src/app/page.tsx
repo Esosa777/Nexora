@@ -43,7 +43,7 @@ export default function Home() {
         const fetchedChannels = data.map((item) => item.channels).filter(Boolean);
         setChannels(fetchedChannels);
         if (fetchedChannels.length > 0 && !selectedChannelId) {
-          setSelectedChannelId(fetchedChannels[0].id);
+          setSelectedChannelId((fetchedChannels[0] as any)?.id);
         }
       }
       setLoading(false);
@@ -93,6 +93,10 @@ export default function Home() {
         isOpen={isAuthModalOpen}
         onClose={() => {
           if (currentUser) setIsAuthModalOpen(false);
+        }}
+        onAuthSuccess={() => {
+          setIsAuthModalOpen(false);
+          window.location.reload();
         }}
       />
     </main>

@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
-import ChatSidebar from '../components/ChatSidebar';
-import ChatArea from '../components/ChatArea';
-import AuthModal from '../components/AuthModal';
+import { supabase } from '@/lib/supabase';
+import ChatSidebar from '@/components/ChatSidebar';
+import ChatArea from '@/components/ChatArea';
+import AuthModal from '@/components/AuthModal';
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);

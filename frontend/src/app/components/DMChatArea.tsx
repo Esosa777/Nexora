@@ -1,6 +1,30 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
+function MessageStatusIndicator({ status, isMe }: { status: 'sent' | 'delivered' | 'read'; isMe: boolean }) {
+  if (!isMe) return null;
+
+  return (
+    <span className="inline-flex items-center ml-1 select-none" title={`Message ${status}`}>
+      {status === 'sent' && (
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+      {status === 'delivered' && (
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7M11 13l4 4L23 7" />
+        </svg>
+      )}
+      {status === 'read' && (
+        <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7M11 13l4 4L23 7" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
 export default function DMChatArea({ conversationId, currentUserId }: { conversationId: string; currentUserId: string }) {
   const [conversation, setConversation] = useState<any>(null);
   const [counterpart, setCounterpart] = useState<any>(null);
@@ -9,7 +33,7 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || !currentUserId) return;
 
     async function loadDmData() {
       // 1. Fetch conversation
@@ -38,6 +62,14 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true });
       setMessages(msgs || []);
+
+      // 4. Mark incoming unread messages as read
+      await supabase
+        .from('direct_messages')
+        .update({ status: 'read', read_at: new Date().toISOString() })
+        .eq('conversation_id', conversationId)
+        .neq('sender_id', currentUserId)
+        .neq('status', 'read');
     }
 
     loadDmData();
@@ -45,8 +77,22 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
     // Realtime subscription for DM messages & status updates
     const sub = supabase
       .channel(`dm:${conversationId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
-        setMessages((prev) => [...prev, payload.new]);
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages', filter: `conversation_id=eq.${conversationId}` }, async (payload) => {
+        setMessages((prev) => {
+          if (prev.some(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
+
+        // If incoming message, mark as read automatically since chat is open
+        if (payload.new.sender_id !== currentUserId) {
+          await supabase
+            .from('direct_messages')
+            .update({ status: 'read', read_at: new Date().toISOString() })
+            .eq('id', payload.new.id);
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'direct_messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
+        setMessages((prev) => prev.map(m => m.id === payload.new.id ? payload.new : m));
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'direct_conversations', filter: `id=eq.${conversationId}` }, (payload) => {
         setConversation(payload.new);
@@ -84,13 +130,19 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
     }
 
     const { error } = await supabase.from('direct_messages').insert([
-      { conversation_id: conversationId, sender_id: currentUserId, content: newMessage }
+      { conversation_id: conversationId, sender_id: currentUserId, content: newMessage, status: 'sent' }
     ]);
 
     if (!error) {
       setNewMessage('');
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
+  };
+
+  const formatTime = (dateString: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   const mySentCount = messages.filter(m => m.sender_id === currentUserId).length;
@@ -131,8 +183,12 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
           const isMe = msg.sender_id === currentUserId;
           return (
             <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-              <div className={`px-4 py-2 rounded-2xl max-w-md text-sm ${isMe ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-gray-800 text-gray-100 rounded-bl-sm'}`}>
-                {msg.content}
+              <div className={`px-4 py-2 rounded-2xl max-w-md text-sm flex flex-col gap-1 ${isMe ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-gray-800 text-gray-100 rounded-bl-sm'}`}>
+                <span>{msg.content}</span>
+                <div className={`flex items-center gap-1 text-[10px] select-none ${isMe ? 'text-blue-200 justify-end' : 'text-gray-400 justify-start'}`}>
+                  <span>{formatTime(msg.created_at)}</span>
+                  <MessageStatusIndicator status={msg.status || 'sent'} isMe={isMe} />
+                </div>
               </div>
             </div>
           );

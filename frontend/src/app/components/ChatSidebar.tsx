@@ -1,126 +1,155 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import CreateChannelModal from './CreateChannelModal';
-import ChannelDiscoveryModal from './ChannelDiscoveryModal';
 
-interface SidebarProps {
+interface ChatSidebarProps {
   channels: any[];
   selectedChannelId: string | null;
-  onSelectChannel: (id: string, name: string) => void;
+  onSelectChannel: (channelId: string) => void;
   currentUser: any;
-  onLogout: () => Promise<void>;
+  onLogout: () => void;
   onChannelCreated: (newChannel: any) => void;
 }
 
-export default function Sidebar({
+export default function ChatSidebar({
   channels,
   selectedChannelId,
   onSelectChannel,
   currentUser,
   onLogout,
   onChannelCreated,
-}: SidebarProps) {
+}: ChatSidebarProps) {
+  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isDiscoverOpen, setIsDiscoverOpen] = useState(false);
+  const [newChannelName, setNewChannelName] = useState('');
+
+  // Clear unread badge when a channel is selected
+  useEffect(() => {
+    if (selectedChannelId) {
+      setUnreadMap((prev) => ({ ...prev, [selectedChannelId]: 0 }));
+    }
+  }, [selectedChannelId]);
+
+  // Global listener for incoming messages in any channel to update unread counts
+  useEffect(() => {
+    if (!currentUser || channels.length === 0) return;
+
+    const channelIds = channels.map((c) => c.id);
+
+    const unreadSub = supabase
+      .channel('global_unread_channel_messages')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const msg = payload.new;
+          // If message is in our channels, not sent by us, and not currently open
+          if (
+            channelIds.includes(msg.channel_id) &&
+            msg.user_id !== currentUser.id &&
+            msg.channel_id !== selectedChannelId
+          ) {
+            setUnreadMap((prev) => ({
+              ...prev,
+              [msg.channel_id]: (prev[msg.channel_id] || 0) + 1,
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(unreadSub);
+    };
+  }, [channels, currentUser, selectedChannelId]);
+
+  const handleCreateChannel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChannelName.trim() || !currentUser) return;
+
+    const { data: newChan, error } = await supabase
+      .from('channels')
+      .insert([{ name: newChannelName.trim(), created_by: currentUser.id }])
+      .select()
+      .single();
+
+    if (!error && newChan) {
+      await supabase.from('channel_members').insert([
+        { channel_id: newChan.id, user_id: currentUser.id, status: 'active' },
+      ]);
+      onChannelCreated(newChan);
+      setNewChannelName('');
+      setIsCreateOpen(false);
+    } else {
+      alert('Error creating channel: ' + error?.message);
+    }
+  };
 
   return (
-    <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-full text-white">
-      {/* Sidebar Header with Browse and Create Actions */}
+    <div className="flex flex-col h-full bg-gray-900 text-white">
+      {/* Header */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-        <h2 className="font-bold text-sm tracking-wide text-gray-200">Channels</h2>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setIsDiscoverOpen(true)}
-            className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-            title="Browse Channels"
-          >
-            🔍 Browse
-          </button>
-          <button
-            onClick={() => setIsCreateOpen(true)}
-            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-xs font-bold transition cursor-pointer shadow-sm"
-            title="Create Channel"
-          >
-            + New
-          </button>
-        </div>
+        <h2 className="text-sm font-bold tracking-wider uppercase text-gray-400">Channels</h2>
+        <button
+          onClick={() => setIsCreateOpen(true)}
+          className="w-6 h-6 bg-blue-600 hover:bg-blue-500 rounded-lg flex items-center justify-center font-bold text-sm transition cursor-pointer shadow"
+          title="Create Channel"
+        >
+          +
+        </button>
       </div>
 
       {/* Channel List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {channels.length === 0 ? (
-          <div className="text-center py-10 px-4 text-xs text-gray-500 space-y-2">
-            <p>No channels joined yet.</p>
-            <p>
-              Click <span className="text-blue-400 font-semibold">Browse</span> to discover rooms or{' '}
-              <span className="text-blue-400 font-semibold">+ New</span> to create your own!
-            </p>
-          </div>
-        ) : (
-          channels.map((channel) => {
-            const isActive = channel.id === selectedChannelId;
-            return (
-              <button
-                key={channel.id}
-                onClick={() => onSelectChannel(channel.id, channel.name)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition cursor-pointer ${
-                  isActive ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-gray-800/80 text-gray-300'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 overflow-hidden flex items-center justify-center font-bold text-xs shrink-0">
-                  {channel.avatar_url ? (
-                    <img src={channel.avatar_url} alt={channel.name} className="w-full h-full object-cover" />
-                  ) : (
-                    channel.name[0]?.toUpperCase() || '#'
-                  )}
-                </div>
-                <div className="truncate flex-1">
-                  <div className="text-sm font-semibold truncate">{channel.name}</div>
-                  <div className={`text-[10px] truncate ${isActive ? 'text-blue-100' : 'text-gray-400'}`}>
-                    {channel.description || 'Channel chat'}
-                  </div>
-                </div>
-              </button>
-            );
-          })
-        )}
+        {channels.map((chan) => {
+          const isActive = chan.id === selectedChannelId;
+          const unreadCount = unreadMap[chan.id] || 0;
+
+          return (
+            <button
+              key={chan.id}
+              onClick={() => onSelectChannel(chan.id)}
+              className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between transition cursor-pointer ${
+                isActive
+                  ? 'bg-blue-600/20 border border-blue-500/40 text-white font-semibold'
+                  : 'hover:bg-gray-800 text-gray-300 border border-transparent'
+              }`}
+            >
+              <div className="flex items-center gap-2 truncate">
+                <span className="text-blue-400 font-bold">#</span>
+                <span className="text-xs truncate">{chan.name}</span>
+              </div>
+              {unreadCount > 0 && (
+                <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* User Session Footer */}
-      {currentUser && (
-        <div className="p-3 border-t border-gray-800 bg-gray-950/50 flex items-center justify-between text-xs">
-          <div className="truncate text-gray-400">
-            User: <span className="text-white font-medium">{currentUser.email?.split('@')[0]}</span>
+      {/* Create Channel Modal */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setIsCreateOpen(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl relative" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-bold mb-4">Create New Channel</h3>
+            <form onSubmit={handleCreateChannel} className="space-y-4">
+              <input
+                type="text"
+                value={newChannelName}
+                onChange={(e) => setNewChannelName(e.target.value)}
+                placeholder="channel-name"
+                autoFocus
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 text-white"
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setIsCreateOpen(false)} className="px-4 py-2 bg-gray-800 rounded-xl text-xs text-gray-300">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 rounded-xl text-xs font-semibold text-white">Create</button>
+              </div>
+            </form>
           </div>
-          <button
-            onClick={onLogout}
-            className="text-red-400 hover:text-red-300 transition cursor-pointer"
-            title="Sign out"
-          >
-            Logout
-          </button>
         </div>
       )}
-
-      {/* Channel Creation Modal */}
-      <CreateChannelModal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        onChannelCreated={(newChannel) => {
-          setIsCreateOpen(false);
-          onChannelCreated(newChannel);
-        }}
-      />
-
-      {/* Channel Discovery & Join Modal */}
-      <ChannelDiscoveryModal
-        isOpen={isDiscoverOpen}
-        onClose={() => setIsDiscoverOpen(false)}
-        onJoinedChannel={(joinedChannelId) => {
-          setIsDiscoverOpen(false);
-          onChannelCreated(joinedChannelId);
-        }}
-      />
     </div>
   );
 }

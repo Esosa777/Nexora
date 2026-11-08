@@ -11,6 +11,7 @@ interface DMSidebarProps {
 export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpenStartModal }: DMSidebarProps) {
   const [conversations, setConversations] = useState<any[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
+  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,13 +30,30 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
 
       if (!error && data) {
         setConversations(data);
+
+        // Fetch initial unread message counts where status != 'read' and sender != me
+        const convIds = data.map((c: any) => c.id);
+        if (convIds.length > 0) {
+          const { data: unreadMsgs } = await supabase
+            .from('direct_messages')
+            .select('conversation_id')
+            .in('conversation_id', convIds)
+            .neq('sender_id', currentUserId)
+            .neq('status', 'read');
+
+          const map: Record<string, number> = {};
+          unreadMsgs?.forEach((m: any) => {
+            map[m.conversation_id] = (map[m.conversation_id] || 0) + 1;
+          });
+          setUnreadMap(map);
+        }
       }
       setLoading(false);
     }
 
     loadConversations();
 
-    // Global Presence Channel to track online users across the app
+    // Global Presence Channel
     const globalPresence = supabase.channel('global_presence', {
       config: { presence: { key: currentUserId } }
     });
@@ -51,10 +69,38 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
         }
       });
 
+    // Global unread listener for new incoming DMs
+    const dmUnreadSub = supabase
+      .channel('global_dm_unread_listener')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'direct_messages' },
+        (payload) => {
+          const msg = payload.new;
+          if (
+            msg.sender_id !== currentUserId &&
+            msg.conversation_id !== activeDmId
+          ) {
+            setUnreadMap((prev) => ({
+              ...prev,
+              [msg.conversation_id]: (prev[msg.conversation_id] || 0) + 1,
+            }));
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(globalPresence);
+      supabase.removeChannel(dmUnreadSub);
     };
-  }, [currentUserId]);
+  }, [currentUserId, activeDmId]);
+
+  // Clear unread count for active DM when selected
+  const handleSelectDmWrapper = (dmId: string) => {
+    setUnreadMap((prev) => ({ ...prev, [dmId]: 0 }));
+    onSelectDm(dmId);
+  };
 
   return (
     <div className="flex flex-col h-full bg-gray-900 border-r border-gray-800 text-white">
@@ -82,38 +128,46 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
             const counterpart = isSender ? conv.receiver : conv.sender;
             const isOnline = onlineUserIds.includes(counterpart?.id);
             const isActive = activeDmId === conv.id;
+            const unreadCount = unreadMap[conv.id] || 0;
 
             return (
               <button
                 key={conv.id}
-                onClick={() => onSelectDm(conv.id)}
-                className={`w-full p-2.5 rounded-xl flex items-center gap-3 transition text-left cursor-pointer ${
+                onClick={() => handleSelectDmWrapper(conv.id)}
+                className={`w-full p-2.5 rounded-xl flex items-center justify-between transition text-left cursor-pointer ${
                   isActive ? 'bg-blue-600/20 border border-blue-500/40 text-white' : 'hover:bg-gray-800 text-gray-300 border border-transparent'
                 }`}
               >
-                <div className="relative shrink-0">
-                  <div className="w-9 h-9 rounded-full bg-gray-800 border border-gray-700 overflow-hidden flex items-center justify-center font-bold text-sm">
-                    {counterpart?.avatar_url ? (
-                      <img src={counterpart.avatar_url} className="w-full h-full object-cover" />
-                    ) : (
-                      counterpart?.username?.[0]?.toUpperCase() || 'U'
-                    )}
+                <div className="flex items-center gap-3 truncate">
+                  <div className="relative shrink-0">
+                    <div className="w-9 h-9 rounded-full bg-gray-800 border border-gray-700 overflow-hidden flex items-center justify-center font-bold text-sm">
+                      {counterpart?.avatar_url ? (
+                        <img src={counterpart.avatar_url} className="w-full h-full object-cover" />
+                      ) : (
+                        counterpart?.username?.[0]?.toUpperCase() || 'U'
+                      )}
+                    </div>
+                    <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-gray-900 ${isOnline ? 'bg-emerald-500' : 'bg-gray-500'}`} />
                   </div>
-                  {/* Online Indicator Dot */}
-                  <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-gray-900 ${isOnline ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+
+                  <div className="truncate">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold truncate">@{counterpart?.username || 'User'}</span>
+                      {conv.status === 'pending' && (
+                        <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-medium">Pending</span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-gray-400 block truncate">
+                      {isOnline ? 'Active now' : 'Offline'}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="flex-1 truncate">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-semibold truncate">@{counterpart?.username || 'User'}</span>
-                    {conv.status === 'pending' && (
-                      <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-medium">Pending</span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-gray-400 block truncate">
-                    {isOnline ? 'Active now' : 'Offline'}
+                {unreadCount > 0 && (
+                  <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse shrink-0">
+                    {unreadCount}
                   </span>
-                </div>
+                )}
               </button>
             );
           })

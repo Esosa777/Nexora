@@ -31,8 +31,12 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isCounterpartTyping, setIsCounterpartTyping] = useState(false);
+  const [isCounterpartOnline, setIsCounterpartOnline] = useState(false);
+  
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const counterpartId = conversation?.sender_id === currentUserId ? conversation?.receiver_id : conversation?.sender_id;
 
   useEffect(() => {
     if (!conversationId || !currentUserId) return;
@@ -47,11 +51,11 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
       if (!conv) return;
       setConversation(conv);
 
-      const counterpartId = conv.sender_id === currentUserId ? conv.receiver_id : conv.sender_id;
+      const targetCounterpartId = conv.sender_id === currentUserId ? conv.receiver_id : conv.sender_id;
       const { data: profile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', counterpartId)
+        .eq('id', targetCounterpartId)
         .single();
       setCounterpart(profile);
 
@@ -105,6 +109,31 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
       supabase.removeChannel(sub);
     };
   }, [conversationId, currentUserId]);
+
+  // Global Presence Tracker for Online/Offline status
+  useEffect(() => {
+    if (!currentUserId || !counterpartId) return;
+
+    const globalPresence = supabase.channel('global_presence', {
+      config: { presence: { key: currentUserId } }
+    });
+
+    globalPresence
+      .on('presence', { event: 'sync' }, () => {
+        const state = globalPresence.presenceState();
+        const onlineIds = Object.keys(state);
+        setIsCounterpartOnline(onlineIds.includes(counterpartId));
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await globalPresence.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(globalPresence);
+    };
+  }, [currentUserId, counterpartId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -173,13 +202,22 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
     <div className="flex-1 flex flex-col h-full bg-gray-950 text-white relative">
       {/* DM Header */}
       <div className="px-6 py-3 bg-gray-900 border-b border-gray-800 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 overflow-hidden flex items-center justify-center font-bold text-sm text-blue-400 relative">
-          {counterpart?.avatar_url ? <img src={counterpart.avatar_url} className="w-full h-full object-cover" /> : counterpart?.username?.[0]?.toUpperCase()}
+        <div className="relative">
+          <div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 overflow-hidden flex items-center justify-center font-bold text-sm text-blue-400">
+            {counterpart?.avatar_url ? <img src={counterpart.avatar_url} className="w-full h-full object-cover" /> : counterpart?.username?.[0]?.toUpperCase()}
+          </div>
+          <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-gray-900 ${isCounterpartOnline ? 'bg-emerald-500' : 'bg-gray-500'}`} />
         </div>
         <div>
           <h2 className="text-sm font-bold">@{counterpart?.username || 'Loading...'}</h2>
           <span className="text-[11px] text-gray-400">
-            {isCounterpartTyping ? <span className="text-blue-400 animate-pulse font-medium">typing...</span> : 'Direct Message'}
+            {isCounterpartTyping ? (
+              <span className="text-blue-400 animate-pulse font-medium">typing...</span>
+            ) : isCounterpartOnline ? (
+              <span className="text-emerald-400 font-medium">Online</span>
+            ) : (
+              'Offline'
+            )}
           </span>
         </div>
       </div>

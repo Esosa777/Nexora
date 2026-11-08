@@ -42,7 +42,6 @@ export default function ChatSidebar({
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
           const msg = payload.new;
-          // If message is in our channels, not sent by us, and not currently open
           if (
             channelIds.includes(msg.channel_id) &&
             msg.user_id !== currentUser.id &&
@@ -108,18 +107,26 @@ export default function ChatSidebar({
             <button
               key={chan.id}
               onClick={() => onSelectChannel(chan.id)}
-              className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between transition cursor-pointer ${
+              className={`w-full p-2.5 rounded-xl flex items-center justify-between transition cursor-pointer ${
                 isActive
                   ? 'bg-blue-600/20 border border-blue-500/40 text-white font-semibold'
                   : 'hover:bg-gray-800 text-gray-300 border border-transparent'
               }`}
             >
-              <div className="flex items-center gap-2 truncate">
-                <span className="text-blue-400 font-bold">#</span>
-                <span className="text-xs truncate">{chan.name}</span>
+              <div className="flex items-center gap-3 truncate">
+                <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 overflow-hidden flex items-center justify-center font-bold text-xs text-blue-400 shrink-0">
+                  {chan.avatar_url ? (
+                    <img src={chan.avatar_url} className="w-full h-full object-cover" />
+                  ) : (
+                    chan.name?.[0]?.toUpperCase() || '#'
+                  )}
+                </div>
+                <div className="truncate text-left">
+                  <span className="text-xs font-semibold truncate">#{chan.name}</span>
+                </div>
               </div>
               {unreadCount > 0 && (
-                <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse">
+                <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse shrink-0">
                   {unreadCount}
                 </span>
               )}

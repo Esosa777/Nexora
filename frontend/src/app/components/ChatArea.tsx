@@ -132,6 +132,7 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [reactionsMap, setReactionsMap] = useState<Record<string, any[]>>({});
+  const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
 
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
 
@@ -165,7 +166,10 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
   }, []);
 
   useEffect(() => {
-    const handleClickOutside = () => setActiveMenuId(null);
+    const handleClickOutside = () => {
+      setActiveMenuId(null);
+      setActiveReactionPickerMsgId(null);
+    };
     window.addEventListener('click', handleClickOutside);
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
@@ -302,7 +306,6 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
 
       const messageIds = rawMessages.map(m => m.id);
       
-      // Fetch reactions
       const { data: reactionsData } = await supabase
         .from('message_reactions')
         .select('*')
@@ -405,7 +408,6 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
       )
       .subscribe();
 
-    // Reaction real-time sync subscription
     const reactionSubscription = supabase
       .channel(`room_reactions:${channelId}`)
       .on(
@@ -899,12 +901,12 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
                       </button>
                     ))}
 
-                    {/* Quick Add Reaction Button */}
+                    {/* Quick Add Reaction Button & Popup */}
                     <div className="relative group/react inline-block">
                       <button className="px-2 py-0.5 rounded-full text-xs bg-gray-800/40 hover:bg-gray-700 border border-gray-700/50 text-gray-400 hover:text-white transition cursor-pointer">
                         +
                       </button>
-                      <div className="absolute bottom-full mb-1 left-0 hidden group-hover/react:flex items-center gap-1 bg-gray-900 border border-gray-700 p-1 rounded-xl shadow-xl z-30">
+                      <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} hidden group-hover/react:flex items-center gap-1 bg-gray-900 border border-gray-700 p-1.5 rounded-xl shadow-xl z-30`}>
                         {['👍', '❤️', '🔥', '😂', '🚀', '👀'].map(emoji => (
                           <button
                             key={emoji}
@@ -914,9 +916,46 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
                             {emoji}
                           </button>
                         ))}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
+                          }}
+                          className="w-7 h-7 hover:bg-gray-800 rounded-lg flex items-center justify-center text-xs text-gray-300 hover:text-white transition cursor-pointer border border-gray-700 bg-gray-800 font-bold"
+                          title="More emojis"
+                        >
+                          ➕
+                        </button>
                       </div>
                     </div>
                   </div>
+
+                  {/* Expanded Full Emoji Picker Modal for Message */}
+                  {activeReactionPickerMsgId === msg.id && (
+                    <div 
+                      onClick={(e) => e.stopPropagation()}
+                      className={`absolute bottom-full mb-8 ${isMe ? 'right-0' : 'left-0'} bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-3 grid grid-cols-6 gap-2 z-40 w-64`}
+                    >
+                      <div className="col-span-6 pb-1 mb-1 border-b border-gray-800 text-[10px] text-gray-400 font-semibold flex justify-between items-center">
+                        <span>Choose reaction emoji</span>
+                        <button onClick={() => setActiveReactionPickerMsgId(null)} className="hover:text-white cursor-pointer">✕</button>
+                      </div>
+                      {['😊', '😂', '❤️', '👍', '🔥', '🎉', '😎', '😢', '🙏', '✨', '👀', '💯', '🚀', '⭐', '🙌', '💡', '💬', '👏', '😍', '🤩', '🥳', '💩', '💀', '💯'].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            handleToggleReaction(msg.id, emoji);
+                            setActiveReactionPickerMsgId(null);
+                          }}
+                          className="w-8 h-8 hover:bg-gray-800 rounded-xl flex items-center justify-center text-lg transition cursor-pointer bg-transparent border-none"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}

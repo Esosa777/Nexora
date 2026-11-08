@@ -1,88 +1,107 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { supabase } from './lib/supabase';
-import ChatSidebar from './components/ChatSidebar';
-import ChatArea from './components/ChatArea';
-import AuthModal from './components/AuthModal';
-import ProfileModal from './components/ProfileModal';
-import { User } from '@supabase/supabase-js';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import ChatSidebar from '@/components/ChatSidebar';
+import ChatArea from '@/components/ChatArea';
+import AuthModal from '@/components/AuthModal';
 
 export default function Home() {
-  const [selectedChannelId, setSelectedChannelId] = useState<string>('');
-  const [user, setUser] = useState<User | null>(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [channels, setChannels] = useState<any[]>([]);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // 1. Get initial auth session
     supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
+      setCurrentUser(user);
+      if (!user) setIsAuthModalOpen(true);
     });
 
+    // 2. Listen to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) setShowAuthModal(false);
+      const user = session?.user ?? null;
+      setCurrentUser(user);
+      if (!user) setIsAuthModalOpen(true);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleSignOut = async () => {
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Fetch user channels
+    async function loadChannels() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('channel_members')
+        .select('channel_id, channels(*)')
+        .eq('user_id', currentUser.id)
+        .eq('status', 'active');
+
+      if (!error && data) {
+        const fetchedChannels = data.map((item) => item.channels).filter(Boolean);
+        setChannels(fetchedChannels);
+        if (fetchedChannels.length > 0 && !selectedChannelId) {
+          setSelectedChannelId(fetchedChannels[0].id);
+        }
+      }
+      setLoading(false);
+    }
+
+    loadChannels();
+  }, [currentUser]);
+
+  const handleLogout = async () => {
     await supabase.auth.signOut();
+    setCurrentUser(null);
+    setChannels([]);
+    setSelectedChannelId(null);
+    setIsAuthModalOpen(true);
   };
 
+  // Find the currently selected channel object to derive its name dynamically
+  const selectedChannel = channels.find((c) => c.id === selectedChannelId);
+
   return (
-    <div className="flex h-screen bg-gray-950 relative overflow-hidden">
-      {/* Top bar user controls */}
-      <div className="absolute top-3 right-4 z-50 pointer-events-auto flex items-center gap-3 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-gray-800 text-xs text-white shadow-lg">
-        {user ? (
-          <>
-            <span className="text-gray-300">{user.email}</span>
-            <button 
-              onClick={() => setShowProfileModal(true)}
-              className="bg-gray-800 hover:bg-gray-700 px-2.5 py-1 rounded font-medium transition border border-gray-700 cursor-pointer"
-            >
-              Profile
-            </button>
-            <button 
-              onClick={handleSignOut}
-              className="bg-red-600/80 hover:bg-red-600 px-2 py-1 rounded font-medium transition cursor-pointer"
-            >
-              Log Out
-            </button>
-          </>
+    <main className="flex h-screen w-screen overflow-hidden bg-gray-950 text-white">
+      {/* Sidebar with bottom-left user indicator */}
+      <ChatSidebar
+        channels={channels}
+        selectedChannelId={selectedChannelId}
+        onSelectChannel={setSelectedChannelId}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        onChannelCreated={(newChannel) => {
+          setChannels((prev) => [...prev, newChannel]);
+          setSelectedChannelId(newChannel.id);
+        }}
+      />
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col h-full relative">
+        {selectedChannelId ? (
+          <ChatArea
+            channelId={selectedChannelId}
+            channelName={selectedChannel?.name}
+          />
         ) : (
-          <button 
-            onClick={() => setShowAuthModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded font-medium transition cursor-pointer"
-          >
-            Log In / Sign Up
-          </button>
+          <div className="flex-1 flex items-center justify-center text-gray-500">
+            {loading ? 'Loading channels...' : 'Select a channel to start messaging'}
+          </div>
         )}
       </div>
 
-      {showAuthModal && !user && (
-        <AuthModal 
-          onAuthSuccess={() => setShowAuthModal(false)} 
-          onClose={() => setShowAuthModal(false)} 
-        />
-      )}
-
-      {showProfileModal && user && (
-        <ProfileModal 
-          userId={user.id} 
-          onClose={() => setShowProfileModal(false)} 
-        />
-      )}
-
-      {/* Sidebar passes the selected channel ID up to Home */}
-      <ChatSidebar 
-        onSelectChannel={(id) => setSelectedChannelId(id)} 
-        activeChannelId={selectedChannelId} 
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => {
+          if (currentUser) setIsAuthModalOpen(false);
+        }}
       />
-      
-      {/* ChatArea receives the active channel ID to load messages */}
-      <ChatArea channelId={selectedChannelId} />
-    </div>
+    </main>
   );
 }

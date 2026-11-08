@@ -156,6 +156,13 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Initialize current user immediately on mount
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setCurrentUser(user);
+    });
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = () => setActiveMenuId(null);
     window.addEventListener('click', handleClickOutside);
@@ -207,10 +214,9 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
     if (!isFarFromBottom) setUnreadCount(0);
   };
 
-useEffect(() => {
+  useEffect(() => {
     if (!channelId || !currentUser) return;
 
-    // 1. Declare presenceChannel inside the effect scope
     const presenceChannel = supabase.channel(`room_presence:${channelId}`, {
       config: {
         presence: {
@@ -219,7 +225,6 @@ useEffect(() => {
       },
     });
 
-    // 2. Setup listeners and subscribe
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannel.presenceState();
@@ -234,8 +239,7 @@ useEffect(() => {
         }
       });
 
-    // 3. Cleanup function safely inside the same scope
-    return () => { // Hey!!!
+    return () => {
       supabase.removeChannel(presenceChannel);
     };
   }, [channelId, currentUser]);

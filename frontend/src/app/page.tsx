@@ -8,6 +8,8 @@ import AuthModal from './components/AuthModal';
 import DMSidebar from './components/DMSidebar';
 import DMChatArea from './components/DMChatArea';
 import StartDmModal from './components/StartDmModal';
+import UserProfileModal from './components/UserProfileModal';
+import SettingsModal from './components/SettingsModal';
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -20,6 +22,10 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'channel' | 'dm'>('channel');
   const [activeDmId, setActiveDmId] = useState<string | null>(null);
   const [isStartDmOpen, setIsStartDmOpen] = useState(false);
+
+  // Profile & Settings Modals State
+  const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -84,7 +90,7 @@ export default function Home() {
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
 
   return (
-    <main className="flex h-screen w-screen overflow-hidden bg-gray-950 text-white">
+    <main className="flex h-screen w-screen overflow-hidden bg-gray-950 text-white relative">
       {/* Sidebar Area with Navigation Switcher */}
       <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0">
         <div className="p-3 border-b border-gray-800 flex gap-2">
@@ -132,6 +138,19 @@ export default function Home() {
             />
           )}
         </div>
+
+        {/* Bottom Settings Button for Own Profile / Block List */}
+        {currentUser && (
+          <div className="p-3 border-t border-gray-800 flex items-center justify-between">
+            <span className="text-xs text-gray-400 truncate max-w-[120px]">@{currentUser.email?.split('@')[0]}</span>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+            >
+              Settings
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main View Feed */}
@@ -141,6 +160,7 @@ export default function Home() {
             <ChatArea
               channelId={selectedChannelId}
               channelName={selectedChannel?.name}
+              onOpenUserProfile={(userId) => setSelectedProfileUserId(userId)}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-500">
@@ -172,12 +192,31 @@ export default function Home() {
       />
 
       {currentUser && (
-        <StartDmModal
-          isOpen={isStartDmOpen}
-          onClose={() => setIsStartDmOpen(false)}
-          currentUserId={currentUser.id}
-          onDmStarted={(dmId) => handleSelectDm(dmId)}
-        />
+        <>
+          <StartDmModal
+            isOpen={isStartDmOpen}
+            onClose={() => setIsStartDmOpen(false)}
+            currentUserId={currentUser.id}
+            onDmStarted={(dmId) => handleSelectDm(dmId)}
+          />
+
+          <UserProfileModal
+            isOpen={!!selectedProfileUserId}
+            onClose={() => setSelectedProfileUserId(null)}
+            targetUserId={selectedProfileUserId}
+            currentUserId={currentUser.id}
+            onStartDm={(dmId) => {
+              handleSelectDm(dmId);
+            }}
+          />
+
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            currentUser={currentUser}
+            onLogout={handleLogout}
+          />
+        </>
       )}
     </main>
   );

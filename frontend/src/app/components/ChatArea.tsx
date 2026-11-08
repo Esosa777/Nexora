@@ -123,7 +123,14 @@ function DownloadableImage({ src }: { src: string }) {
   );
 }
 
-export default function ChatArea({ channelId, channelName, customBackground }: { channelId: string; channelName?: string; customBackground?: string }) {
+interface ChatAreaProps {
+  channelId: string;
+  channelName?: string;
+  customBackground?: string;
+  onOpenUserProfile?: (userId: string) => void;
+}
+
+export default function ChatArea({ channelId, channelName, customBackground, onOpenUserProfile }: ChatAreaProps) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -774,14 +781,23 @@ export default function ChatArea({ channelId, channelName, customBackground }: {
                   className={`flex flex-col relative group ${isMe ? 'items-end' : 'items-start'}`}
                 >
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <div className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
+                    <div 
+                      onClick={() => msg.user_id && onOpenUserProfile?.(msg.user_id)}
+                      className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-80 transition"
+                    >
                       {avatarUrl ? (
                         <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
                       ) : (
                         <span className="text-[10px] text-gray-300 font-bold">{displayName[0].toUpperCase()}</span>
                       )}
                     </div>
-                    <span className="text-xs text-gray-400 font-medium">{displayName}</span>
+                    <button 
+                      type="button"
+                      onClick={() => msg.user_id && onOpenUserProfile?.(msg.user_id)}
+                      className="text-xs text-gray-400 font-medium hover:text-white hover:underline transition bg-transparent border-none p-0 cursor-pointer"
+                    >
+                      {displayName}
+                    </button>
 
                     {userRole === 'creator' && (
                       <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">

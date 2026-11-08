@@ -30,13 +30,14 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
   const [counterpart, setCounterpart] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [isCounterpartTyping, setIsCounterpartTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!conversationId || !currentUserId) return;
 
     async function loadDmData() {
-      // 1. Fetch conversation
       const { data: conv } = await supabase
         .from('direct_conversations')
         .select('*')
@@ -46,7 +47,6 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
       if (!conv) return;
       setConversation(conv);
 
-      // 2. Fetch counterpart profile
       const counterpartId = conv.sender_id === currentUserId ? conv.receiver_id : conv.sender_id;
       const { data: profile } = await supabase
         .from('profiles')
@@ -55,7 +55,6 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
         .single();
       setCounterpart(profile);
 
-      // 3. Fetch messages
       const { data: msgs } = await supabase
         .from('direct_messages')
         .select('*')
@@ -63,7 +62,6 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
         .order('created_at', { ascending: true });
       setMessages(msgs || []);
 
-      // 4. Mark incoming unread messages as read
       await supabase
         .from('direct_messages')
         .update({ status: 'read', read_at: new Date().toISOString() })
@@ -74,7 +72,7 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
 
     loadDmData();
 
-    // Realtime subscription for DM messages & status updates
+    // Realtime subscription for messages & typing broadcast
     const sub = supabase
       .channel(`dm:${conversationId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages', filter: `conversation_id=eq.${conversationId}` }, async (payload) => {
@@ -83,7 +81,6 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
           return [...prev, payload.new];
         });
 
-        // If incoming message, mark as read automatically since chat is open
         if (payload.new.sender_id !== currentUserId) {
           await supabase
             .from('direct_messages')
@@ -97,6 +94,11 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'direct_conversations', filter: `id=eq.${conversationId}` }, (payload) => {
         setConversation(payload.new);
       })
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        if (payload.payload.userId !== currentUserId) {
+          setIsCounterpartTyping(payload.payload.isTyping);
+        }
+      })
       .subscribe();
 
     return () => {
@@ -104,28 +106,44 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
     };
   }, [conversationId, currentUserId]);
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setNewMessage(value);
+
+    if (!conversationId || !currentUserId) return;
+    const dmChannel = supabase.channel(`dm:${conversationId}`);
+
+    dmChannel.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { userId: currentUserId, isTyping: true },
+    });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      dmChannel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId: currentUserId, isTyping: false },
+      });
+    }, 2000);
+  };
+
   const handleAcceptRequest = async () => {
-    await supabase
-      .from('direct_conversations')
-      .update({ status: 'accepted' })
-      .eq('id', conversationId);
+    await supabase.from('direct_conversations').update({ status: 'accepted' }).eq('id', conversationId);
   };
 
   const handleRejectRequest = async () => {
-    await supabase
-      .from('direct_conversations')
-      .update({ status: 'rejected' })
-      .eq('id', conversationId);
+    await supabase.from('direct_conversations').update({ status: 'rejected' }).eq('id', conversationId);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !conversation) return;
 
-    // Check message count limit if status is pending and user is sender
     const mySentMessagesCount = messages.filter(m => m.sender_id === currentUserId).length;
     if (conversation.status === 'pending' && conversation.sender_id === currentUserId && mySentMessagesCount >= 5) {
-      alert("You have reached the 5-message limit. Wait for the user to accept your chat request to continue chatting!");
+      alert("You have reached the 5-message limit. Wait for acceptance to continue!");
       return;
     }
 
@@ -155,12 +173,14 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
     <div className="flex-1 flex flex-col h-full bg-gray-950 text-white relative">
       {/* DM Header */}
       <div className="px-6 py-3 bg-gray-900 border-b border-gray-800 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 overflow-hidden flex items-center justify-center font-bold text-sm text-blue-400">
+        <div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 overflow-hidden flex items-center justify-center font-bold text-sm text-blue-400 relative">
           {counterpart?.avatar_url ? <img src={counterpart.avatar_url} className="w-full h-full object-cover" /> : counterpart?.username?.[0]?.toUpperCase()}
         </div>
         <div>
           <h2 className="text-sm font-bold">@{counterpart?.username || 'Loading...'}</h2>
-          <span className="text-[11px] text-gray-400">Direct Message</span>
+          <span className="text-[11px] text-gray-400">
+            {isCounterpartTyping ? <span className="text-blue-400 animate-pulse font-medium">typing...</span> : 'Direct Message'}
+          </span>
         </div>
       </div>
 
@@ -168,7 +188,7 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
       {isPending && isReceiver && (
         <div className="bg-blue-600/20 border-b border-blue-500/30 p-4 flex items-center justify-between text-xs">
           <div>
-            <strong className="text-blue-300">@{counterpart?.username}</strong> wants to send you direct messages. Do you accept this chat request?
+            <strong className="text-blue-300">@{counterpart?.username}</strong> wants to send you direct messages. Do you accept?
           </div>
           <div className="flex gap-2">
             <button onClick={handleAcceptRequest} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold transition cursor-pointer">Accept</button>
@@ -196,6 +216,13 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Typing status bar */}
+      {isCounterpartTyping && (
+        <div className="px-4 py-1 text-xs text-blue-400 italic animate-pulse bg-gray-900/50">
+          @{counterpart?.username} is typing...
+        </div>
+      )}
+
       {/* Message Input / Limit Banner */}
       {isPending && isSender && (
         <div className="px-4 py-2 bg-amber-500/10 border-t border-amber-500/20 text-amber-300 text-xs flex justify-between items-center">
@@ -208,7 +235,7 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
         <input
           type="text"
           value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
+          onChange={handleInputChange}
           placeholder={reachedLimit ? "5-message limit reached waiting for reply..." : "Type a direct message..."}
           disabled={reachedLimit}
           className="flex-1 bg-gray-800 text-white px-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50"

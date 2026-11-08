@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import ChatSidebar from '@/components/ChatSidebar';
-import ChatArea from '@/components/ChatArea';
-import AuthModal from '@/components/AuthModal';
+import { supabase } from '../lib/supabase';
+import ChatSidebar from '../components/ChatSidebar';
+import ChatArea from '../components/ChatArea';
+import AuthModal from '../components/AuthModal';
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -14,13 +14,11 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Get initial auth session
     supabase.auth.getUser().then(({ data: { user } }) => {
       setCurrentUser(user);
       if (!user) setIsAuthModalOpen(true);
     });
 
-    // 2. Listen to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const user = session?.user ?? null;
       setCurrentUser(user);
@@ -33,7 +31,6 @@ export default function Home() {
   useEffect(() => {
     if (!currentUser) return;
 
-    // Fetch user channels
     async function loadChannels() {
       setLoading(true);
       const { data, error } = await supabase
@@ -63,12 +60,10 @@ export default function Home() {
     setIsAuthModalOpen(true);
   };
 
-  // Find the currently selected channel object to derive its name dynamically
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
 
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-gray-950 text-white">
-      {/* Sidebar with bottom-left user indicator */}
       <ChatSidebar
         channels={channels}
         selectedChannelId={selectedChannelId}
@@ -81,7 +76,6 @@ export default function Home() {
         }}
       />
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col h-full relative">
         {selectedChannelId ? (
           <ChatArea
@@ -95,7 +89,6 @@ export default function Home() {
         )}
       </div>
 
-      {/* Authentication Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => {

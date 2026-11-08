@@ -165,7 +165,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize current user immediately on mount
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setCurrentUser(user);
@@ -226,7 +225,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
     if (!isFarFromBottom) setUnreadCount(0);
   };
 
-  // Real-time Typing Indicator Broadcast Listener
   useEffect(() => {
     if (!channelId || !currentUser) return;
 
@@ -782,7 +780,13 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                 >
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div 
-                      onClick={() => msg.user_id && onOpenUserProfile?.(msg.user_id)}
+                      onClick={() => {
+                        if (msg.user_id) {
+                          onOpenUserProfile?.(msg.user_id);
+                        } else {
+                          console.warn("Legacy message has no user_id attached:", msg);
+                        }
+                      }}
                       className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-80 transition"
                     >
                       {avatarUrl ? (
@@ -793,7 +797,13 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                     </div>
                     <button 
                       type="button"
-                      onClick={() => msg.user_id && onOpenUserProfile?.(msg.user_id)}
+                      onClick={() => {
+                        if (msg.user_id) {
+                          onOpenUserProfile?.(msg.user_id);
+                        } else {
+                          console.warn("Legacy message has no user_id attached:", msg);
+                        }
+                      }}
                       className="text-xs text-gray-400 font-medium hover:text-white hover:underline transition bg-transparent border-none p-0 cursor-pointer"
                     >
                       {displayName}

@@ -31,30 +31,60 @@ export default function MessageSearchModal({
     const timer = setTimeout(async () => {
       setLoading(true);
 
-      // Search channel messages
-      const { data: chanMsgs } = await supabase
-        .from('messages')
-        .select(`
-          *,
-          channels(id, name),
-          profiles!user_id(username, avatar_url)
-        `)
-        .ilike('content', `%${searchQuery}%`)
-        .limit(10);
+      try {
+        // 1. Search channel messages
+        const { data: chanMsgs, error: chanErr } = await supabase
+          .from('messages')
+          .select('*, channels(id, name), profiles(username, avatar_url)')
+          .ilike('content', `%${searchQuery}%`)
+          .limit(10);
 
-      // Search direct messages
-      const { data: dmMsgs } = await supabase
-        .from('direct_messages')
-        .select(`
-          *,
-          profiles!sender_id(username, avatar_url)
-        `)
-        .ilike('content', `%${searchQuery}%`)
-        .limit(10);
+        if (chanErr) console.error("Channel search error:", chanErr);
 
-      setChannelResults(chanMsgs || []);
-      setDmResults(dmMsgs || []);
-      setLoading(false);
+        // 2. Search direct messages safely without fragile relational joins
+        const { data: dmMsgs, error: dmErr } = await supabase
+          .from('direct_messages')
+          .select('*')
+          .ilike('content', `%${searchQuery}%`)
+          .limit(10);
+
+        if (dmErr) console.error("DM search error:", dmErr);
+
+        // Attach profile names for DM results safely
+        if (dmMsgs && dmMsgs.length > 0) {
+          const senderIds = Array.from(new Set(dmMsgs.map((m) => m.sender_id).filter(Boolean)));
+          
+          let profilesMap: Record<string, any> = {};
+          if (senderIds.length > 0) {
+            const { data: profs } = await supabase
+              .from('profiles')
+              .select('id, username, avatar_url')
+              .in('id', senderIds);
+
+            if (profs) {
+              profilesMap = profs.reduce((acc, p) => {
+                acc[p.id] = p;
+                return acc;
+              }, {} as Record<string, any>);
+            }
+          }
+
+          const enrichedDms = dmMsgs.map((m) => ({
+            ...m,
+            senderProfile: profilesMap[m.sender_id] || null,
+          }));
+
+          setDmResults(enrichedDms);
+        } else {
+          setDmResults([]);
+        }
+
+        setChannelResults(chanMsgs || []);
+      } catch (err) {
+        console.error("Search execution error:", err);
+      } finally {
+        setLoading(false);
+      }
     }, 300);
 
     return () => clearTimeout(timer);
@@ -139,7 +169,7 @@ export default function MessageSearchModal({
                       >
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-emerald-400 font-bold">Direct Message</span>
-                          <span className="text-[10px] text-gray-500">@{msg.profiles?.username || 'User'}</span>
+                          <span className="text-[10px] text-gray-500">@{msg.senderProfile?.username || 'User'}</span>
                         </div>
                         <p className="text-sm text-gray-200 truncate">{msg.content}</p>
                       </div>

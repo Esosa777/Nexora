@@ -21,6 +21,7 @@ export default function ChatSidebar({
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [newChannelAvatar, setNewChannelAvatar] = useState('');
 
   // Clear unread badge when a channel is selected
   useEffect(() => {
@@ -67,16 +68,23 @@ export default function ChatSidebar({
 
     const { data: newChan, error } = await supabase
       .from('channels')
-      .insert([{ name: newChannelName.trim(), created_by: currentUser.id }])
+      .insert([
+        { 
+          name: newChannelName.trim(), 
+          created_by: currentUser.id,
+          avatar_url: newChannelAvatar.trim() || null 
+        }
+      ])
       .select()
       .single();
 
     if (!error && newChan) {
       await supabase.from('channel_members').insert([
-        { channel_id: newChan.id, user_id: currentUser.id, status: 'active' },
+        { channel_id: newChan.id, user_id: currentUser.id, status: 'active', role: 'admin' },
       ]);
       onChannelCreated(newChan);
       setNewChannelName('');
+      setNewChannelAvatar('');
       setIsCreateOpen(false);
     } else {
       alert('Error creating channel: ' + error?.message);
@@ -138,20 +146,33 @@ export default function ChatSidebar({
       {/* Create Channel Modal */}
       {isCreateOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setIsCreateOpen(false)}>
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl relative" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-bold mb-4">Create New Channel</h3>
-            <form onSubmit={handleCreateChannel} className="space-y-4">
-              <input
-                type="text"
-                value={newChannelName}
-                onChange={(e) => setNewChannelName(e.target.value)}
-                placeholder="channel-name"
-                autoFocus
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 text-white"
-              />
-              <div className="flex justify-end gap-2">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl relative space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-bold">Create New Channel</h3>
+            <form onSubmit={handleCreateChannel} className="space-y-3">
+              <div>
+                <label className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block mb-1">Channel Name</label>
+                <input
+                  type="text"
+                  value={newChannelName}
+                  onChange={(e) => setNewChannelName(e.target.value)}
+                  placeholder="e.g. announcements"
+                  autoFocus
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block mb-1">Avatar Image URL (Optional)</label>
+                <input
+                  type="url"
+                  value={newChannelAvatar}
+                  onChange={(e) => setNewChannelAvatar(e.target.value)}
+                  placeholder="https://example.com/image.png"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 text-white"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setIsCreateOpen(false)} className="px-4 py-2 bg-gray-800 rounded-xl text-xs text-gray-300">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 rounded-xl text-xs font-semibold text-white">Create</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 rounded-xl text-xs font-semibold text-white">Create Channel</button>
               </div>
             </form>
           </div>

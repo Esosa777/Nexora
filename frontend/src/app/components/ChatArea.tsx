@@ -134,6 +134,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [channelCreatorId, setChannelCreatorId] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [onlineCount, setOnlineCount] = useState<number>(1);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -170,6 +171,22 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
       setCurrentUser(user);
     });
   }, []);
+
+  // Fetch channel creator info when channelId changes
+  useEffect(() => {
+    if (!channelId) return;
+    async function fetchChannelMeta() {
+      const { data } = await supabase
+        .from('channels')
+        .select('created_by')
+        .eq('id', channelId)
+        .single();
+      if (data) {
+        setChannelCreatorId(data.created_by);
+      }
+    }
+    fetchChannelMeta();
+  }, [channelId]);
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -755,6 +772,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
               const isMe = currentUser && msg.user_id === currentUser.id;
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
+              const isCreator = channelCreatorId && msg.user_id === channelCreatorId;
               const userRole = msg.profiles?.role;
               const isEditing = editingId === msg.id;
               const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
@@ -783,8 +801,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       onClick={() => {
                         if (msg.user_id) {
                           onOpenUserProfile?.(msg.user_id);
-                        } else {
-                          console.warn("Legacy message has no user_id attached:", msg);
                         }
                       }}
                       className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-80 transition"
@@ -800,8 +816,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       onClick={() => {
                         if (msg.user_id) {
                           onOpenUserProfile?.(msg.user_id);
-                        } else {
-                          console.warn("Legacy message has no user_id attached:", msg);
                         }
                       }}
                       className="text-xs text-gray-400 font-medium hover:text-white hover:underline transition bg-transparent border-none p-0 cursor-pointer"
@@ -809,12 +823,14 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       {displayName}
                     </button>
 
-                    {userRole === 'creator' && (
-                      <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                    {/* Animated Creator Badge */}
+                    {isCreator && (
+                      <span className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-black text-[9px] font-extrabold px-2 py-0.5 rounded-full shadow-lg shadow-amber-500/20 animate-pulse tracking-wide uppercase flex items-center gap-1">
                         👑 Creator
                       </span>
                     )}
-                    {userRole === 'admin' && (
+
+                    {!isCreator && userRole === 'admin' && (
                       <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
                         🛡️ Admin
                       </span>
@@ -927,7 +943,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       </button>
                     ))}
 
-                    {/* Quick Add Reaction Button & Popup */}
                     <div className="relative group/react inline-block">
                       <button className="px-2 py-0.5 rounded-full text-xs bg-gray-800/40 hover:bg-gray-700 border border-gray-700/50 text-gray-400 hover:text-white transition cursor-pointer">
                         +
@@ -957,7 +972,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                     </div>
                   </div>
 
-                  {/* Expanded Full Emoji Picker Modal for Message */}
                   {activeReactionPickerMsgId === msg.id && (
                     <div 
                       onClick={(e) => e.stopPropagation()}

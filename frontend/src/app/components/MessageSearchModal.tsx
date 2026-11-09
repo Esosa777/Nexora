@@ -31,7 +31,7 @@ export default function MessageSearchModal({
     const timer = setTimeout(async () => {
       setLoading(true);
 
-      // 1. Search channel messages
+      // Search channel messages
       const { data: chanMsgs } = await supabase
         .from('messages')
         .select(`
@@ -42,7 +42,7 @@ export default function MessageSearchModal({
         .ilike('content', `%${searchQuery}%`)
         .limit(10);
 
-      // 2. Search direct messages
+      // Search direct messages
       const { data: dmMsgs } = await supabase
         .from('direct_messages')
         .select(`
@@ -55,7 +55,7 @@ export default function MessageSearchModal({
       setChannelResults(chanMsgs || []);
       setDmResults(dmMsgs || []);
       setLoading(false);
-    }, 300); // Debounce search
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [searchQuery, currentUserId]);

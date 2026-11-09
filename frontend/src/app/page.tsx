@@ -10,6 +10,7 @@ import DMChatArea from './components/DMChatArea';
 import StartDmModal from './components/StartDmModal';
 import UserProfileModal from './components/UserProfileModal';
 import SettingsModal from './components/SettingsModal';
+import MessageSearchModal from './components/MessageSearchModal';
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -27,6 +28,9 @@ export default function Home() {
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  // Global Message Search State
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setCurrentUser(user);
@@ -41,6 +45,20 @@ export default function Home() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Keyboard shortcut listener for Ctrl+K / Cmd+K to open search modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (currentUser) {
+          setIsSearchOpen((prev) => !prev);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -155,28 +173,54 @@ export default function Home() {
 
       {/* Main View Feed */}
       <div className="flex-1 flex flex-col h-full relative">
-        {activeTab === 'channel' ? (
-          selectedChannelId ? (
-            <ChatArea
-              channelId={selectedChannelId}
-              channelName={selectedChannel?.name}
-              onOpenUserProfile={(userId) => setSelectedProfileUserId(userId)}
-            />
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
-              {loading ? 'Loading channels...' : 'Select a channel to start messaging'}
+        {/* Top Header Bar with Global Search Button */}
+        {currentUser && (
+          <div className="h-12 px-4 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between z-20 shrink-0 shadow-sm backdrop-blur-sm">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-bold tracking-wide uppercase text-gray-400">Nexora Workspace</span>
             </div>
-          )
-        ) : activeDmId && currentUser ? (
-          <DMChatArea
-            conversationId={activeDmId}
-            currentUserId={currentUser.id}
-          />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-sm gap-2">
-            <span>Select a direct conversation or click "+" to message by username</span>
+
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="flex items-center gap-2 bg-gray-800/80 hover:bg-gray-700/80 border border-gray-700/60 text-gray-300 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer"
+              title="Search messages across channels and DMs (Cmd+K / Ctrl+K)"
+            >
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <span>Search messages...</span>
+              <kbd className="bg-gray-900 border border-gray-700 text-gray-400 text-[10px] px-1.5 py-0.5 rounded font-mono ml-2">
+                ⌘K
+              </kbd>
+            </button>
           </div>
         )}
+
+        <div className="flex-1 overflow-hidden relative">
+          {activeTab === 'channel' ? (
+            selectedChannelId ? (
+              <ChatArea
+                channelId={selectedChannelId}
+                channelName={selectedChannel?.name}
+                onOpenUserProfile={(userId) => setSelectedProfileUserId(userId)}
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-gray-500">
+                {loading ? 'Loading channels...' : 'Select a channel to start messaging'}
+              </div>
+            )
+          ) : activeDmId && currentUser ? (
+            <DMChatArea
+              conversationId={activeDmId}
+              currentUserId={currentUser.id}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-sm gap-2">
+              <span>Select a direct conversation or click "+" to message by username</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Modals */}
@@ -215,6 +259,14 @@ export default function Home() {
             onClose={() => setIsSettingsOpen(false)}
             currentUser={currentUser}
             onLogout={handleLogout}
+          />
+
+          <MessageSearchModal
+            isOpen={isSearchOpen}
+            onClose={() => setIsSearchOpen(false)}
+            currentUserId={currentUser.id}
+            onSelectChannel={(channelId) => handleSelectChannel(channelId)}
+            onSelectDm={(dmId) => handleSelectDm(dmId)}
           />
         </>
       )}

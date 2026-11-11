@@ -69,7 +69,7 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
         }
       });
 
-    // Global unread listener for new incoming DMs
+    // Global unread listener for new incoming DMs and conversation updates
     const dmUnreadSub = supabase
       .channel('global_dm_unread_listener')
       .on(
@@ -88,6 +88,13 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'direct_conversations' },
+        () => {
+          loadConversations();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -95,6 +102,23 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
       supabase.removeChannel(dmUnreadSub);
     };
   }, [currentUserId, activeDmId]);
+
+  // Handle accepting a pending DM request
+  const handleAcceptRequest = async (e: React.MouseEvent, conversationId: string) => {
+    e.stopPropagation();
+    const { error } = await supabase
+      .from('direct_conversations')
+      .update({ status: 'active' })
+      .eq('id', conversationId);
+
+    if (error) {
+      alert('Failed to accept request: ' + error.message);
+    } else {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === conversationId ? { ...c, status: 'active' } : c))
+      );
+    }
+  };
 
   // Clear unread count for active DM when selected
   const handleSelectDmWrapper = (dmId: string) => {
@@ -129,12 +153,13 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
             const isOnline = onlineUserIds.includes(counterpart?.id);
             const isActive = activeDmId === conv.id;
             const unreadCount = unreadMap[conv.id] || 0;
+            const isIncomingPending = conv.status === 'pending' && conv.receiver_id === currentUserId;
 
             return (
-              <button
+              <div
                 key={conv.id}
                 onClick={() => handleSelectDmWrapper(conv.id)}
-                className={`w-full p-2.5 rounded-xl flex items-center justify-between transition text-left cursor-pointer ${
+                className={`w-full p-2.5 rounded-xl flex items-center justify-between transition cursor-pointer ${
                   isActive ? 'bg-blue-600/20 border border-blue-500/40 text-white' : 'hover:bg-gray-800 text-gray-300 border border-transparent'
                 }`}
               >
@@ -163,12 +188,23 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
                   </div>
                 </div>
 
-                {unreadCount > 0 && (
-                  <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse shrink-0">
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {isIncomingPending && (
+                    <button
+                      onClick={(e) => handleAcceptRequest(e, conv.id)}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow"
+                    >
+                      Accept
+                    </button>
+                  )}
+
+                  {unreadCount > 0 && (
+                    <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md animate-pulse">
+                      {unreadCount}
+                    </span>
+                  )}
+                </div>
+              </div>
             );
           })
         )}

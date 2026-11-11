@@ -48,7 +48,6 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Keyboard shortcut listener for Ctrl+K / Cmd+K to open search modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -62,22 +61,21 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentUser]);
 
+  // FIXED: Fetch workspace channels directly from the channels table so all accounts see them
   useEffect(() => {
     if (!currentUser) return;
 
     async function loadChannels() {
       setLoading(true);
       const { data, error } = await supabase
-        .from('channel_members')
-        .select('channel_id, channels(*)')
-        .eq('user_id', currentUser.id)
-        .eq('status', 'active');
+        .from('channels')
+        .select('*')
+        .order('created_at', { ascending: true });
 
       if (!error && data) {
-        const fetchedChannels = data.map((item) => item.channels).filter(Boolean);
-        setChannels(fetchedChannels);
-        if (fetchedChannels.length > 0 && !selectedChannelId) {
-          setSelectedChannelId((fetchedChannels[0] as any)?.id);
+        setChannels(data);
+        if (data.length > 0 && !selectedChannelId) {
+          setSelectedChannelId(data[0].id);
         }
       }
       setLoading(false);
@@ -128,7 +126,6 @@ export default function Home() {
 
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-gray-950 text-white relative">
-      {/* Sidebar Area with Navigation Switcher */}
       <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0">
         <div className="p-3 border-b border-gray-800 flex gap-2">
           <button
@@ -176,7 +173,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Bottom Settings Button for Own Profile / Block List */}
         {currentUser && (
           <div className="p-3 border-t border-gray-800 flex items-center justify-between">
             <span className="text-xs text-gray-400 truncate max-w-[120px]">@{currentUser.email?.split('@')[0]}</span>
@@ -190,9 +186,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* Main View Feed */}
       <div className="flex-1 flex flex-col h-full relative">
-        {/* Top Header Bar with Global Search Button */}
         {currentUser && (
           <div className="h-12 px-4 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between z-20 shrink-0 shadow-sm backdrop-blur-sm">
             <div className="flex items-center gap-2">
@@ -245,7 +239,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Modals */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => {

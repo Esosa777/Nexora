@@ -175,12 +175,12 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Fetch conversation status (accepted vs pending request)
+  // Fetch conversation status from direct_conversations table
   useEffect(() => {
     if (!conversationId) return;
     async function fetchConversationMeta() {
       const { data } = await supabase
-        .from('conversations')
+        .from('direct_conversations')
         .select('*')
         .eq('id', conversationId)
         .single();
@@ -465,8 +465,8 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
 
     if ((!finalContent.trim() && !mediaUrl) || !conversationId) return;
 
-    // Check 5-message pending request limit if recipient hasn't accepted yet
-    const isPending = conversationMeta && !conversationMeta.accepted && conversationMeta.user1_id === currentUser?.id;
+    // Strict 5-message pending request limit check
+    const isPending = conversationMeta && conversationMeta.status === 'pending' && conversationMeta.sender_id === currentUser?.id;
     if (isPending) {
       const mySentCount = messages.filter(m => m.sender_id === currentUser?.id).length;
       if (mySentCount >= 5) {
@@ -621,7 +621,7 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
   };
 
   // Calculate remaining messages for pending request banner
-  const isPendingRequest = conversationMeta && !conversationMeta.accepted && conversationMeta.user1_id === currentUser?.id;
+  const isPendingRequest = conversationMeta && conversationMeta.status === 'pending' && conversationMeta.sender_id === currentUser?.id;
   const mySentMessagesCount = messages.filter(m => m.sender_id === currentUser?.id).length;
   const remainingMessages = Math.max(0, 5 - mySentMessagesCount);
 

@@ -807,7 +807,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       {avatarUrl ? (
                         <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-[10px] text-gray-300 font-bold">{displayName[0].toUpperCase()}</span>
+                        <span className="text-[10px] text-gray-300 font-bold">{displayName?.[0]?.toUpperCase() || 'U'}</span>
                       )}
                     </div>
                     <button 

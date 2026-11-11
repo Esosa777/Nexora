@@ -346,7 +346,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
       if (userIds.length > 0) {
         const { data: profilesData } = await supabase
           .from('profiles')
-          .select('id, username, avatar_url, role')
+          .select('id, username, avatar_url')
           .in('id', userIds);
 
         if (profilesData) {
@@ -384,7 +384,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
             if (payload.new.user_id) {
               const { data } = await supabase
                 .from('profiles')
-                .select('username, avatar_url, role')
+                .select('username, avatar_url')
                 .eq('id', payload.new.user_id)
                 .single();
               senderProfile = data;
@@ -773,7 +773,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
               const isCreator = channelCreatorId && msg.user_id === channelCreatorId;
-              const userRole = msg.profiles?.role;
               const isEditing = editingId === msg.id;
               const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
               const isMenuOpen = activeMenuId === msg.id;
@@ -827,12 +826,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                     {isCreator && (
                       <span className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-black text-[9px] font-extrabold px-2 py-0.5 rounded-full shadow-lg shadow-amber-500/20 animate-pulse tracking-wide uppercase flex items-center gap-1">
                         👑 Creator
-                      </span>
-                    )}
-
-                    {!isCreator && userRole === 'admin' && (
-                      <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                        🛡️ Admin
                       </span>
                     )}
                   </div>

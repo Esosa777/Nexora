@@ -32,25 +32,44 @@ export default function MessageSearchModal({
       setLoading(true);
 
       try {
-        // 1. Search channel messages
-        const { data: chanMsgs, error: chanErr } = await supabase
+        // 1. Fetch matching channel messages (no joins to avoid PGRST201)
+        const { data: chanMsgs } = await supabase
           .from('messages')
-          .select('*, channels(id, name), profiles(username, avatar_url)')
+          .select('*')
           .ilike('content', `%${searchQuery}%`)
           .limit(10);
 
-        if (chanErr) console.error("Channel search error:", chanErr);
+        if (chanMsgs && chanMsgs.length > 0) {
+          const channelIds = Array.from(new Set(chanMsgs.map((m) => m.channel_id).filter(Boolean)));
+          const userIds = Array.from(new Set(chanMsgs.map((m) => m.user_id).filter(Boolean)));
 
-        // 2. Search direct messages safely without fragile relational joins
-        const { data: dmMsgs, error: dmErr } = await supabase
+          // Batch fetch channels and profiles separately
+          const [chanRes, profRes] = await Promise.all([
+            channelIds.length > 0 ? supabase.from('channels').select('id, name').in('id', channelIds) : { data: [] },
+            userIds.length > 0 ? supabase.from('profiles').select('id, username, avatar_url').in('id', userIds) : { data: [] },
+          ]);
+
+          const channelsMap = (chanRes.data || []).reduce((acc: any, c: any) => { acc[c.id] = c; return acc; }, {});
+          const profilesMap = (profRes.data || []).reduce((acc: any, p: any) => { acc[p.id] = p; return acc; }, {});
+
+          const enrichedChannels = chanMsgs.map((m) => ({
+            ...m,
+            channels: channelsMap[m.channel_id] || null,
+            profiles: profilesMap[m.user_id] || null,
+          }));
+
+          setChannelResults(enrichedChannels);
+        } else {
+          setChannelResults([]);
+        }
+
+        // 2. Fetch matching direct messages
+        const { data: dmMsgs } = await supabase
           .from('direct_messages')
           .select('*')
           .ilike('content', `%${searchQuery}%`)
           .limit(10);
 
-        if (dmErr) console.error("DM search error:", dmErr);
-
-        // Attach profile names for DM results safely
         if (dmMsgs && dmMsgs.length > 0) {
           const senderIds = Array.from(new Set(dmMsgs.map((m) => m.sender_id).filter(Boolean)));
           
@@ -79,7 +98,6 @@ export default function MessageSearchModal({
           setDmResults([]);
         }
 
-        setChannelResults(chanMsgs || []);
       } catch (err) {
         console.error("Search execution error:", err);
       } finally {

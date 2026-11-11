@@ -354,7 +354,6 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
 
     getMessages();
 
-    // FIXED: Corrected realtime table subscription channel filter
     const dmSubscription = supabase
       .channel(`dm_room_changes:${conversationId}`)
       .on(

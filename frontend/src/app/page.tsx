@@ -22,14 +22,16 @@ export default function Home() {
   // Direct Messaging State
   const [activeTab, setActiveTab] = useState<'channel' | 'dm'>('channel');
   const [activeDmId, setActiveDmId] = useState<string | null>(null);
+  const [activeRecipient, setActiveRecipient] = useState<any>(null);
   const [isStartDmOpen, setIsStartDmOpen] = useState(false);
 
   // Profile & Settings Modals State
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Global Message Search State
+  // Global Message Search & Highlight State
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -90,13 +92,13 @@ export default function Home() {
     setChannels([]);
     setSelectedChannelId(null);
     setActiveDmId(null);
+    setActiveRecipient(null);
     setIsAuthModalOpen(true);
   };
 
-  const handleSelectChannel = async (channelId: string) => {
+  const handleSelectChannel = async (channelId: string, messageId?: string) => {
     setActiveTab('channel');
     
-    // Ensure the channel exists in state or fetch it if clicked from search
     const exists = channels.some((c) => c.id === channelId);
     if (!exists) {
       const { data: chan } = await supabase
@@ -109,13 +111,16 @@ export default function Home() {
       }
     }
 
+    setHighlightedMessageId(messageId);
     setSelectedChannelId(channelId);
     setActiveDmId(null);
   };
 
-  const handleSelectDm = (dmId: string) => {
+  const handleSelectDm = (dmId: string, messageId?: string, recipient?: any) => {
     setActiveTab('dm');
+    setHighlightedMessageId(messageId);
     setActiveDmId(dmId);
+    if (recipient) setActiveRecipient(recipient);
     setSelectedChannelId(null);
   };
 
@@ -165,7 +170,7 @@ export default function Home() {
             <DMSidebar
               currentUserId={currentUser?.id}
               activeDmId={activeDmId}
-              onSelectDm={handleSelectDm}
+              onSelectDm={(dmId, recipient) => handleSelectDm(dmId, undefined, recipient)}
               onOpenStartModal={() => setIsStartDmOpen(true)}
             />
           )}
@@ -218,6 +223,7 @@ export default function Home() {
                 channelId={selectedChannelId}
                 channelName={selectedChannel?.name}
                 onOpenUserProfile={(userId) => setSelectedProfileUserId(userId)}
+                highlightedMessageId={highlightedMessageId}
               />
             ) : (
               <div className="flex-1 flex items-center justify-center text-gray-500">
@@ -227,7 +233,9 @@ export default function Home() {
           ) : activeDmId && currentUser ? (
             <DMChatArea
               conversationId={activeDmId}
-              currentUserId={currentUser.id}
+              recipientUser={activeRecipient}
+              onOpenUserProfile={(userId) => setSelectedProfileUserId(userId)}
+              highlightedMessageId={highlightedMessageId}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-sm gap-2">
@@ -255,7 +263,7 @@ export default function Home() {
             isOpen={isStartDmOpen}
             onClose={() => setIsStartDmOpen(false)}
             currentUserId={currentUser.id}
-            onDmStarted={(dmId) => handleSelectDm(dmId)}
+            onDmStarted={(dmId, recipient) => handleSelectDm(dmId, undefined, recipient)}
           />
 
           <UserProfileModal
@@ -263,8 +271,8 @@ export default function Home() {
             onClose={() => setSelectedProfileUserId(null)}
             targetUserId={selectedProfileUserId}
             currentUserId={currentUser.id}
-            onStartDm={(dmId) => {
-              handleSelectDm(dmId);
+            onStartDm={(dmId, recipient) => {
+              handleSelectDm(dmId, undefined, recipient);
             }}
           />
 
@@ -279,8 +287,8 @@ export default function Home() {
             isOpen={isSearchOpen}
             onClose={() => setIsSearchOpen(false)}
             currentUserId={currentUser.id}
-            onSelectChannel={(channelId) => handleSelectChannel(channelId)}
-            onSelectDm={(dmId) => handleSelectDm(dmId)}
+            onSelectChannel={(channelId, messageId) => handleSelectChannel(channelId, messageId)}
+            onSelectDm={(dmId, messageId) => handleSelectDm(dmId, messageId)}
           />
         </>
       )}

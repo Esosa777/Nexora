@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import ExtraProfileStuff from './ExtraProfileStuff'; // Importing your profile modal file
 
 interface DMSidebarProps {
   currentUserId: string;
@@ -13,6 +14,9 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  
+  // State to control opening/closing ExtraProfileStuff
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -23,15 +27,14 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
         .from('direct_conversations')
         .select(`
           *,
-          sender:profiles!sender_id(id, username, avatar_url),
-          receiver:profiles!receiver_id(id, username, avatar_url)
+          sender:profiles!sender_id(id, username, display_name, status_message, avatar_url),
+          receiver:profiles!receiver_id(id, username, display_name, status_message, avatar_url)
         `)
         .or(`sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
 
       if (!error && data) {
         setConversations(data);
 
-        // Fetch initial unread message counts where status != 'read' and sender != me
         const convIds = data.map((c: any) => c.id);
         if (convIds.length > 0) {
           const { data: unreadMsgs } = await supabase
@@ -53,7 +56,6 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
 
     loadConversations();
 
-    // Global Presence Channel
     const globalPresence = supabase.channel('global_presence', {
       config: { presence: { key: currentUserId } }
     });
@@ -69,7 +71,6 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
         }
       });
 
-    // Global unread listener for new incoming DMs and conversation updates
     const dmUnreadSub = supabase
       .channel('global_dm_unread_listener')
       .on(
@@ -103,7 +104,6 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
     };
   }, [currentUserId, activeDmId]);
 
-  // Handle accepting a pending DM request (using 'accepted' to align with database constraint)
   const handleAcceptRequest = async (e: React.MouseEvent, conversationId: string) => {
     e.stopPropagation();
     const { error } = await supabase
@@ -120,25 +120,36 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
     }
   };
 
-  // Clear unread count for active DM when selected
   const handleSelectDmWrapper = (dmId: string) => {
     setUnreadMap((prev) => ({ ...prev, [dmId]: 0 }));
     onSelectDm(dmId);
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 border-r border-gray-800 text-white">
+    <div className="flex flex-col h-full bg-gray-900 border-r border-gray-800 text-white relative">
+      {/* Header */}
       <div className="p-3 border-b border-gray-800 flex items-center justify-between">
         <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Direct Messages</h3>
-        <button
-          onClick={onOpenStartModal}
-          className="w-6 h-6 bg-blue-600 hover:bg-blue-500 rounded-lg flex items-center justify-center font-bold text-sm transition cursor-pointer shadow"
-          title="New Direct Message"
-        >
-          +
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Profile / Settings Button */}
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="w-6 h-6 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg flex items-center justify-center text-xs transition cursor-pointer shadow border border-gray-700"
+            title="Edit Profile & Status"
+          >
+            ⚙️
+          </button>
+          <button
+            onClick={onOpenStartModal}
+            className="w-6 h-6 bg-blue-600 hover:bg-blue-500 rounded-lg flex items-center justify-center font-bold text-sm transition cursor-pointer shadow"
+            title="New Direct Message"
+          >
+            +
+          </button>
+        </div>
       </div>
 
+      {/* Conversations List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {loading ? (
           <div className="text-center text-xs text-gray-500 py-4">Loading DMs...</div>
@@ -177,13 +188,15 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
 
                   <div className="truncate">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold truncate">@{counterpart?.username || 'User'}</span>
+                      <span className="text-xs font-semibold truncate">
+                        {counterpart?.display_name || `@${counterpart?.username || 'User'}`}
+                      </span>
                       {conv.status === 'pending' && (
                         <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-medium">Pending</span>
                       )}
                     </div>
                     <span className="text-[10px] text-gray-400 block truncate">
-                      {isOnline ? 'Active now' : 'Offline'}
+                      {counterpart?.status_message || (isOnline ? 'Active now' : 'Offline')}
                     </span>
                   </div>
                 </div>
@@ -209,6 +222,16 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
           })
         )}
       </div>
+
+      {/* Render ExtraProfileStuff Modal */}
+      <ExtraProfileStuff
+        currentUser={{ id: currentUserId }}
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        onProfileUpdated={() => {
+          // Re-load or refresh state if needed
+        }}
+      />
     </div>
   );
 }

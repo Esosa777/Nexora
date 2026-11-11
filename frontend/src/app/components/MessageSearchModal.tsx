@@ -45,15 +45,17 @@ export default function MessageSearchModal({
           console.error("Channel search error:", chanError);
         }
 
-        console.log("Channel messages raw result:", chanMsgs);
-
         if (chanMsgs && chanMsgs.length > 0) {
           const channelIds = Array.from(new Set(chanMsgs.map((m) => m.channel_id).filter(Boolean)));
           const userIds = Array.from(new Set(chanMsgs.map((m) => m.user_id).filter(Boolean)));
 
           const [chanRes, profRes] = await Promise.all([
-            channelIds.length > 0 ? supabase.from('channels').select('id, name').in('id', channelIds) : { data: [] },
-            userIds.length > 0 ? supabase.from('profiles').select('id, username, avatar_url').in('id', userIds) : { data: [] },
+            channelIds.length > 0 
+              ? supabase.from('channels').select('id, name').in('id', channelIds) 
+              : Promise.resolve({ data: [] }),
+            userIds.length > 0 
+              ? supabase.from('profiles').select('id, username, avatar_url').in('id', userIds) 
+              : Promise.resolve({ data: [] }),
           ]);
 
           const channelsMap = (chanRes.data || []).reduce((acc: any, c: any) => { acc[c.id] = c; return acc; }, {});
@@ -80,8 +82,6 @@ export default function MessageSearchModal({
         if (dmError) {
           console.error("DM search error:", dmError);
         }
-
-        console.log("DM messages raw result:", dmMsgs);
 
         if (dmMsgs && dmMsgs.length > 0) {
           const senderIds = Array.from(new Set(dmMsgs.map((m) => m.sender_id).filter(Boolean)));

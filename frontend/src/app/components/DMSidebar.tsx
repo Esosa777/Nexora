@@ -103,19 +103,19 @@ export default function DMSidebar({ currentUserId, activeDmId, onSelectDm, onOpe
     };
   }, [currentUserId, activeDmId]);
 
-  // Handle accepting a pending DM request
+  // Handle accepting a pending DM request (using 'accepted' to align with database constraint)
   const handleAcceptRequest = async (e: React.MouseEvent, conversationId: string) => {
     e.stopPropagation();
     const { error } = await supabase
       .from('direct_conversations')
-      .update({ status: 'active' })
+      .update({ status: 'accepted' })
       .eq('id', conversationId);
 
     if (error) {
       alert('Failed to accept request: ' + error.message);
     } else {
       setConversations((prev) =>
-        prev.map((c) => (c.id === conversationId ? { ...c, status: 'active' } : c))
+        prev.map((c) => (c.id === conversationId ? { ...c, status: 'accepted' } : c))
       );
     }
   };

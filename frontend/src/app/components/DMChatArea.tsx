@@ -138,6 +138,9 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
   const [reactionsMap, setReactionsMap] = useState<Record<string, any[]>>({});
   const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
 
+  // DM Request / Limit States
+  const [conversationMeta, setConversationMeta] = useState<any>(null);
+
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<any | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -171,6 +174,22 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
     window.addEventListener('click', handleClickOutside);
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
+
+  // Fetch conversation status (accepted vs pending request)
+  useEffect(() => {
+    if (!conversationId) return;
+    async function fetchConversationMeta() {
+      const { data } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('id', conversationId)
+        .single();
+      if (data) {
+        setConversationMeta(data);
+      }
+    }
+    fetchConversationMeta();
+  }, [conversationId, messages]);
 
   const formatDuration = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -335,8 +354,9 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
 
     getMessages();
 
+    // FIXED: Corrected realtime table subscription channel filter
     const dmSubscription = supabase
-      .channel(`dm_room:${conversationId}`)
+      .channel(`dm_room_changes:${conversationId}`)
       .on(
         'postgres_changes',
         {
@@ -445,6 +465,16 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
     const mediaType = customMediaType || stagedFile?.type || null;
 
     if ((!finalContent.trim() && !mediaUrl) || !conversationId) return;
+
+    // Check 5-message pending request limit if recipient hasn't accepted yet
+    const isPending = conversationMeta && !conversationMeta.accepted && conversationMeta.user1_id === currentUser?.id;
+    if (isPending) {
+      const mySentCount = messages.filter(m => m.sender_id === currentUser?.id).length;
+      if (mySentCount >= 5) {
+        alert("You have reached the 5-message limit for pending chat requests. Wait for the recipient to accept your request before sending more messages.");
+        return;
+      }
+    }
 
     playPopSound();
 
@@ -591,6 +621,11 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
     setActiveMenuId(null);
   };
 
+  // Calculate remaining messages for pending request banner
+  const isPendingRequest = conversationMeta && !conversationMeta.accepted && conversationMeta.user1_id === currentUser?.id;
+  const mySentMessagesCount = messages.filter(m => m.sender_id === currentUser?.id).length;
+  const remainingMessages = Math.max(0, 5 - mySentMessagesCount);
+
   return (
     <div className="flex-1 flex flex-col h-full text-white relative bg-gray-950">
       {/* Header */}
@@ -618,6 +653,16 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Pending Request Banner & Meter */}
+      {isPendingRequest && (
+        <div className="bg-amber-600/20 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200 z-10">
+          <span>⚠️ Chat request pending. You can send up to 5 messages before acceptance.</span>
+          <span className="font-bold bg-amber-500/30 px-2 py-0.5 rounded-full">
+            {remainingMessages} message{remainingMessages === 1 ? '' : 's'} remaining
+          </span>
         </div>
       )}
 
@@ -887,7 +932,7 @@ export default function DMChatArea({ conversationId, recipientUser, onOpenUserPr
                     setNewMessage((prev) => prev + emoji);
                     setShowEmojiPicker(false);
                   }}
-                  className="w-8 h-8 hover:bg-gray-800 rounded-xl flex items-center justify-center text-lg transition cursor-pointer"
+                  className="w-8 h-8 hover:bg-gray-800 rounded-lg flex items-center justify-center text-lg transition cursor-pointer"
                 >
                   {emoji}
                 </button>

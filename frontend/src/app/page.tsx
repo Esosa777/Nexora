@@ -170,7 +170,7 @@ export default function Home() {
             <DMSidebar
               currentUserId={currentUser?.id}
               activeDmId={activeDmId}
-              onSelectDm={(dmId, recipient) => handleSelectDm(dmId, undefined, recipient)}
+              onSelectDm={(dmId) => handleSelectDm(dmId)}
               onOpenStartModal={() => setIsStartDmOpen(true)}
             />
           )}

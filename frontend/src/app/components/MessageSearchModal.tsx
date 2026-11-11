@@ -5,8 +5,8 @@ interface MessageSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUserId: string;
-  onSelectChannel: (channelId: string) => void;
-  onSelectDm: (dmId: string) => void;
+  onSelectChannel: (channelId: string, messageId?: string) => void;
+  onSelectDm: (dmId: string, messageId?: string) => void;
 }
 
 export default function MessageSearchModal({
@@ -32,18 +32,13 @@ export default function MessageSearchModal({
       setLoading(true);
 
       try {
-        console.log("Searching for:", searchQuery);
-
-        // 1. Fetch matching channel messages
         const { data: chanMsgs, error: chanError } = await supabase
           .from('messages')
           .select('*')
           .ilike('content', `%${searchQuery}%`)
           .limit(10);
 
-        if (chanError) {
-          console.error("Channel search error:", chanError);
-        }
+        if (chanError) console.error("Channel search error:", chanError);
 
         if (chanMsgs && chanMsgs.length > 0) {
           const channelIds = Array.from(new Set(chanMsgs.map((m) => m.channel_id).filter(Boolean)));
@@ -72,16 +67,13 @@ export default function MessageSearchModal({
           setChannelResults([]);
         }
 
-        // 2. Fetch matching direct messages
         const { data: dmMsgs, error: dmError } = await supabase
           .from('direct_messages')
           .select('*')
           .ilike('content', `%${searchQuery}%`)
           .limit(10);
 
-        if (dmError) {
-          console.error("DM search error:", dmError);
-        }
+        if (dmError) console.error("DM search error:", dmError);
 
         if (dmMsgs && dmMsgs.length > 0) {
           const senderIds = Array.from(new Set(dmMsgs.map((m) => m.sender_id).filter(Boolean)));
@@ -127,7 +119,6 @@ export default function MessageSearchModal({
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-xl max-h-[80vh] flex flex-col shadow-2xl relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
         
-        {/* Search Header */}
         <div className="p-4 border-b border-gray-800 flex items-center gap-3">
           <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -145,7 +136,6 @@ export default function MessageSearchModal({
           )}
         </div>
 
-        {/* Results Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {loading ? (
             <div className="text-center text-xs text-gray-500 py-8">Searching messages...</div>
@@ -155,7 +145,6 @@ export default function MessageSearchModal({
             <div className="text-center text-xs text-gray-500 py-12">No messages found matching "{searchQuery}"</div>
           ) : (
             <>
-              {/* Channel Results */}
               {channelResults.length > 0 && (
                 <div>
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Channel Messages</h4>
@@ -165,7 +154,7 @@ export default function MessageSearchModal({
                         key={msg.id}
                         onClick={() => {
                           if (msg.channel_id) {
-                            onSelectChannel(msg.channel_id);
+                            onSelectChannel(msg.channel_id, msg.id);
                             onClose();
                           }
                         }}
@@ -182,7 +171,6 @@ export default function MessageSearchModal({
                 </div>
               )}
 
-              {/* DM Results */}
               {dmResults.length > 0 && (
                 <div>
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2 mt-4">Direct Messages</h4>
@@ -192,7 +180,7 @@ export default function MessageSearchModal({
                         key={msg.id}
                         onClick={() => {
                           if (msg.conversation_id) {
-                            onSelectDm(msg.conversation_id);
+                            onSelectDm(msg.conversation_id, msg.id);
                             onClose();
                           }
                         }}
@@ -212,9 +200,8 @@ export default function MessageSearchModal({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-3 bg-gray-950 border-t border-gray-800 flex justify-between items-center text-[11px] text-gray-500">
-          <span>Tip: Click any result to jump directly to that conversation</span>
+          <span>Tip: Click any result to jump directly to that message</span>
           <button onClick={onClose} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg">Close</button>
         </div>
       </div>

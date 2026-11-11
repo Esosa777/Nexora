@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from "../lib/supabase";
 import MemberManagementModal from './MemberManagementModal';
 
-// Helper for direct background downloads without page redirection
 async function handleDirectDownload(url: string, filename: string) {
   try {
     const response = await fetch(url);
@@ -128,9 +127,10 @@ interface ChatAreaProps {
   channelName?: string;
   customBackground?: string;
   onOpenUserProfile?: (userId: string) => void;
+  highlightedMessageId?: string;
 }
 
-export default function ChatArea({ channelId, channelName, customBackground, onOpenUserProfile }: ChatAreaProps) {
+export default function ChatArea({ channelId, channelName, customBackground, onOpenUserProfile, highlightedMessageId }: ChatAreaProps) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -240,6 +240,24 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
     setShowScrollButton(isFarFromBottom);
     if (!isFarFromBottom) setUnreadCount(0);
   };
+
+  // Jump to and highlight specific message if highlightedMessageId is provided
+  useEffect(() => {
+    if (!highlightedMessageId || messages.length === 0) return;
+
+    const timer = setTimeout(() => {
+      const msgElement = document.getElementById(`msg-${highlightedMessageId}`);
+      if (msgElement) {
+        msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        msgElement.classList.add('bg-blue-600/30', 'ring-2', 'ring-blue-400');
+        setTimeout(() => {
+          msgElement.classList.remove('bg-blue-600/30', 'ring-2', 'ring-blue-400');
+        }, 2500);
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [highlightedMessageId, messages]);
 
   useEffect(() => {
     if (!channelId || !currentUser) return;
@@ -362,7 +380,9 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
       }));
 
       setMessages(messagesWithProfiles);
-      setTimeout(() => scrollToBottom(false), 50);
+      if (!highlightedMessageId) {
+        setTimeout(() => scrollToBottom(false), 50);
+      }
     }
 
     getMessages();
@@ -459,7 +479,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
       supabase.removeChannel(channelSubscription);
       supabase.removeChannel(reactionSubscription);
     };
-  }, [channelId, currentUser]);
+  }, [channelId, currentUser, highlightedMessageId]);
 
   const handleToggleReaction = async (messageId: string, emoji: string) => {
     if (!currentUser) return;
@@ -792,7 +812,8 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
               return (
                 <div 
                   key={msg.id} 
-                  className={`flex flex-col relative group ${isMe ? 'items-end' : 'items-start'}`}
+                  id={`msg-${msg.id}`}
+                  className={`flex flex-col relative group transition-colors duration-500 rounded-xl p-1 ${isMe ? 'items-end' : 'items-start'}`}
                 >
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div 
@@ -821,7 +842,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       {displayName}
                     </button>
 
-                    {/* Animated Creator Badge */}
                     {isCreator && (
                       <span className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-black text-[9px] font-extrabold px-2 py-0.5 rounded-full shadow-lg shadow-amber-500/20 animate-pulse tracking-wide uppercase flex items-center gap-1">
                         👑 Creator
@@ -911,7 +931,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                     )}
                   </div>
 
-                  {/* Message Reactions UI */}
                   <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
                     {Object.entries(
                       (reactionsMap[msg.id] || []).reduce((acc, r) => {
@@ -1025,7 +1044,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
         </div>
       )}
 
-      {/* Chat Input Bar */}
       {channelId && (
         <div className="relative">
           {mentionSuggestions.length > 0 && (
@@ -1144,7 +1162,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
         </div>
       )}
 
-      {/* Member Management Modal */}
       <MemberManagementModal
         isOpen={isMemberModalOpen}
         onClose={() => setIsMemberModalOpen(false)}

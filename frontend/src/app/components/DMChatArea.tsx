@@ -110,11 +110,11 @@ export default function DMChatArea({ conversationId, currentUserId }: { conversa
     };
   }, [conversationId, currentUserId]);
 
-  // Global Presence Tracker for Online/Offline status
+  // Global Presence Tracker for Online/Offline status (Namespaced uniquely per user)
   useEffect(() => {
     if (!currentUserId || !counterpartId) return;
 
-    const globalPresence = supabase.channel('global_presence', {
+    const globalPresence = supabase.channel(`global_presence:${currentUserId}`, {
       config: { presence: { key: currentUserId } }
     });
 

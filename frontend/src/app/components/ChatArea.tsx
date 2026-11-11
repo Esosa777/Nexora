@@ -172,7 +172,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
     });
   }, []);
 
-  // Fetch channel creator info when channelId changes
   useEffect(() => {
     if (!channelId) return;
     async function fetchChannelMeta() {

@@ -15,6 +15,7 @@ import MessageSearchModal from './components/MessageSearchModal';
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [channels, setChannels] = useState<any[]>([]);
+  const [dms, setDms] = useState<any[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -88,19 +89,48 @@ export default function Home() {
     await supabase.auth.signOut();
     setCurrentUser(null);
     setChannels([]);
+    setDms([]);
     setSelectedChannelId(null);
     setActiveDmId(null);
     setIsAuthModalOpen(true);
   };
 
-  const handleSelectChannel = (channelId: string) => {
+  const handleSelectChannel = async (channelId: string) => {
     setActiveTab('channel');
+    
+    // Ensure the channel exists in state or fetch it if clicked from search
+    const exists = channels.some((c) => c.id === channelId);
+    if (!exists) {
+      const { data: chan } = await supabase
+        .from('channels')
+        .select('*')
+        .eq('id', channelId)
+        .single();
+      if (chan) {
+        setChannels((prev) => [...prev, chan]);
+      }
+    }
+
     setSelectedChannelId(channelId);
     setActiveDmId(null);
   };
 
-  const handleSelectDm = (dmId: string) => {
+  const handleSelectDm = async (dmId: string) => {
     setActiveTab('dm');
+
+    // Ensure the conversation exists in state or fetch it if clicked from search
+    const exists = dms.some((d) => d.id === dmId);
+    if (!exists) {
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('id', dmId)
+        .single();
+      if (conv) {
+        setDms((prev) => [...prev, conv]);
+      }
+    }
+
     setActiveDmId(dmId);
     setSelectedChannelId(null);
   };

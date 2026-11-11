@@ -49,17 +49,19 @@ export default function ChannelThreadView({ channelId, parentMessage, currentUse
         },
         async (payload) => {
           let senderProfile = null;
-          if (payload.new.sender_id) {
+          const newMsg: any = payload.new;
+
+          if (newMsg.sender_id) {
             const { data } = await supabase
               .from('profiles')
               .select('id, username, display_name, avatar_url')
-              .eq('id', payload.new.sender_id)
+              .eq('id', newMsg.sender_id)
               .single();
             senderProfile = data;
           }
 
-          const newReply = {
-            ...payload.new,
+          const newReply: any = {
+            ...newMsg,
             profiles: senderProfile,
           };
 

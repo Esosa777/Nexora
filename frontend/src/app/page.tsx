@@ -263,7 +263,7 @@ export default function Home() {
             isOpen={isStartDmOpen}
             onClose={() => setIsStartDmOpen(false)}
             currentUserId={currentUser.id}
-            onDmStarted={(dmId, recipient) => handleSelectDm(dmId, undefined, recipient)}
+            onDmStarted={(dmId) => handleSelectDm(dmId)}
           />
 
           <UserProfileModal
@@ -271,8 +271,8 @@ export default function Home() {
             onClose={() => setSelectedProfileUserId(null)}
             targetUserId={selectedProfileUserId}
             currentUserId={currentUser.id}
-            onStartDm={(dmId, recipient) => {
-              handleSelectDm(dmId, undefined, recipient);
+            onStartDm={(dmId) => {
+              handleSelectDm(dmId);
             }}
           />
 

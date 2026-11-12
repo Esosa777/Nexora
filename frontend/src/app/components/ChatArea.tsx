@@ -128,9 +128,17 @@ interface ChatAreaProps {
   customBackground?: string;
   onOpenUserProfile?: (userId: string) => void;
   highlightedMessageId?: string;
+  onOpenThread?: (message: any) => void;
 }
 
-export default function ChatArea({ channelId, channelName, customBackground, onOpenUserProfile, highlightedMessageId }: ChatAreaProps) {
+export default function ChatArea({ 
+  channelId, 
+  channelName, 
+  customBackground, 
+  onOpenUserProfile, 
+  highlightedMessageId,
+  onOpenThread 
+}: ChatAreaProps) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -241,7 +249,6 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
     if (!isFarFromBottom) setUnreadCount(0);
   };
 
-  // Jump to and highlight specific message if highlightedMessageId is provided
   useEffect(() => {
     if (!highlightedMessageId || messages.length === 0) return;
 
@@ -328,9 +335,10 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
 
     async function getMessages() {
       const { data: rawMessages, error: msgError } = await supabase
-        .from('messages')
+        .from('channel_messages')
         .select('*')
         .eq('channel_id', channelId)
+        .is('parent_message_id', null) // Only fetch top-level messages for the main channel feed
         .order('created_at', { ascending: true });
 
       if (msgError) {
@@ -357,7 +365,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
       });
       setReactionsMap(rMap);
 
-      const userIds = Array.from(new Set(rawMessages.map(m => m.user_id).filter(Boolean)));
+      const userIds = Array.from(new Set(rawMessages.map(m => m.sender_id).filter(Boolean)));
       let profilesMap: Record<string, any> = {};
 
       if (userIds.length > 0) {
@@ -376,7 +384,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
 
       const messagesWithProfiles = rawMessages.map(msg => ({
         ...msg,
-        profiles: msg.user_id ? profilesMap[msg.user_id] || null : null
+        profiles: msg.sender_id ? profilesMap[msg.sender_id] || null : null
       }));
 
       setMessages(messagesWithProfiles);
@@ -394,17 +402,19 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
         {
           event: '*',
           schema: 'public',
-          table: 'messages',
+          table: 'channel_messages',
           filter: `channel_id=eq.${channelId}`,
         },
         async (payload) => {
           if (payload.eventType === 'INSERT') {
+            if (payload.new.parent_message_id) return; // Skip thread replies in main feed
+
             let senderProfile = null;
-            if (payload.new.user_id) {
+            if (payload.new.sender_id) {
               const { data } = await supabase
                 .from('profiles')
                 .select('username, avatar_url')
-                .eq('id', payload.new.user_id)
+                .eq('id', payload.new.sender_id)
                 .single();
               senderProfile = data;
             }
@@ -421,14 +431,14 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
               const container = scrollContainerRef.current;
               const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight < 150) : true;
               
-              if (isNearBottom || fullMessage.user_id === currentUser?.id) {
+              if (isNearBottom || fullMessage.sender_id === currentUser?.id) {
                 setTimeout(() => scrollToBottom(true), 50);
               } else {
                 setUnreadCount((count) => count + 1);
                 setShowScrollButton(true);
               }
 
-              if (fullMessage.user_id !== currentUser?.id) {
+              if (fullMessage.sender_id !== currentUser?.id) {
                 playPopSound();
               }
 
@@ -585,14 +595,13 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
 
     playPopSound();
 
-    const { error } = await supabase.from('messages').insert([
+    const { error } = await supabase.from('channel_messages').insert([
       {
         channel_id: channelId,
         content: finalContent,
-        user_id: currentUser?.id ?? null,
+        sender_id: currentUser?.id ?? null,
         media_url: mediaUrl,
         media_type: mediaType,
-        reply_to_id: replyingTo?.id || null,
       }
     ]);
 
@@ -705,7 +714,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
   };
 
   const handleDeleteMessage = async (messageId: string) => {
-    const { error } = await supabase.from('messages').delete().eq('id', messageId);
+    const { error } = await supabase.from('channel_messages').delete().eq('id', messageId);
     if (error) {
       console.error('Error deleting message:', error);
       alert('Failed to delete message: ' + error.message);
@@ -717,7 +726,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
 
   const handleSaveEdit = async (messageId: string) => {
     if (!editContent.trim()) return;
-    const { error } = await supabase.from('messages').update({ content: editContent, updated_at: new Date().toISOString() }).eq('id', messageId);
+    const { error } = await supabase.from('channel_messages').update({ content: editContent, updated_at: new Date().toISOString() }).eq('id', messageId);
     if (error) {
       alert('Failed to update message: ' + error.message);
     } else {
@@ -788,10 +797,10 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
         ) : (
           <>
             {messages.map((msg) => {
-              const isMe = currentUser && msg.user_id === currentUser.id;
+              const isMe = currentUser && msg.sender_id === currentUser.id;
               const displayName = isMe ? 'You' : msg.profiles?.username || 'Anonymous';
               const avatarUrl = msg.profiles?.avatar_url;
-              const isCreator = channelCreatorId && msg.user_id === channelCreatorId;
+              const isCreator = channelCreatorId && msg.sender_id === channelCreatorId;
               const isEditing = editingId === msg.id;
               const isEdited = msg.updated_at && msg.updated_at !== msg.created_at;
               const isMenuOpen = activeMenuId === msg.id;
@@ -818,8 +827,8 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                   <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div 
                       onClick={() => {
-                        if (msg.user_id) {
-                          onOpenUserProfile?.(msg.user_id);
+                        if (msg.sender_id) {
+                          onOpenUserProfile?.(msg.sender_id);
                         }
                       }}
                       className="w-6 h-6 rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-80 transition"
@@ -833,8 +842,8 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                     <button 
                       type="button"
                       onClick={() => {
-                        if (msg.user_id) {
-                          onOpenUserProfile?.(msg.user_id);
+                        if (msg.sender_id) {
+                          onOpenUserProfile?.(msg.sender_id);
                         }
                       }}
                       className="text-xs text-gray-400 font-medium hover:text-white hover:underline transition bg-transparent border-none p-0 cursor-pointer"
@@ -898,7 +907,7 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       >
                         {repliedToMsg && (
                           <div className="bg-black/30 border-l-2 border-blue-400 px-2 py-1 rounded text-[11px] mb-1 opacity-90 truncate">
-                            <span className="font-semibold block">{repliedToMsg.user_id === currentUser?.id ? 'You' : 'Someone'}</span>
+                            <span className="font-semibold block">{repliedToMsg.sender_id === currentUser?.id ? 'You' : 'Someone'}</span>
                             {repliedToMsg.content || 'Media attachment'}
                           </div>
                         )}
@@ -930,6 +939,19 @@ export default function ChatArea({ channelId, channelName, customBackground, onO
                       </div>
                     )}
                   </div>
+
+                  {/* Thread Reply Button Trigger */}
+                  {onOpenThread && (
+                    <button
+                      onClick={() => onOpenThread(msg)}
+                      className="text-xs text-gray-400 hover:text-blue-400 flex items-center gap-1.5 mt-1.5 transition cursor-pointer bg-transparent border-none p-0 font-medium"
+                    >
+                      <span>💬</span> 
+                      {msg.reply_count && msg.reply_count > 0 
+                        ? `${msg.reply_count} ${msg.reply_count === 1 ? 'reply' : 'replies'}` 
+                        : 'Reply in thread'}
+                    </button>
+                  )}
 
                   <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
                     {Object.entries(

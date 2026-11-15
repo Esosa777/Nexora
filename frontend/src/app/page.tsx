@@ -145,27 +145,6 @@ export default function Home() {
     setActiveThreadMessage(null); // Close thread when switching channels
   };
 
-  const handleConfirmJoin = async () => {
-    if (!pendingChannel || !currentUser) return;
-
-    const { error } = await supabase.from('channel_members').insert([
-      {
-        channel_id: pendingChannel.id,
-        user_id: currentUser.id,
-        role: 'member',
-      },
-    ]);
-
-    if (error) {
-      alert('Failed to join channel: ' + error.message);
-    } else {
-      setShowJoinModal(false);
-      setActiveTab('channel');
-      setSelectedChannelId(pendingChannel.id);
-      setPendingChannel(null);
-    }
-  };
-
   const handleSelectDm = (dmId: string, messageId?: string, recipient?: any) => {
     setActiveTab('dm');
     setHighlightedMessageId(messageId);
@@ -363,12 +342,19 @@ export default function Home() {
 
           {showJoinModal && pendingChannel && (
             <ChannelJoinModal
-              channel={pendingChannel}
+              isOpen={showJoinModal}
+              channelId={pendingChannel.id}
+              channelName={pendingChannel.name}
               onClose={() => {
                 setShowJoinModal(false);
                 setPendingChannel(null);
               }}
-              onConfirmJoin={handleConfirmJoin}
+              onJoined={() => {
+                setShowJoinModal(false);
+                setActiveTab('channel');
+                setSelectedChannelId(pendingChannel.id);
+                setPendingChannel(null);
+              }}
             />
           )}
 

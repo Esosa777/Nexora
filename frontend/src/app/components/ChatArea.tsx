@@ -126,6 +126,7 @@ interface ChatAreaProps {
   channelId: string;
   channelName?: string;
   customBackground?: string;
+  currentUser?: any; // <-- Add this line
   onOpenUserProfile?: (userId: string) => void;
   highlightedMessageId?: string;
   onOpenThread?: (message: any) => void;
@@ -338,7 +339,7 @@ export default function ChatArea({
         .from('channel_messages')
         .select('*')
         .eq('channel_id', channelId)
-        .is('parent_message_id', null) // Only fetch top-level messages for the main channel feed
+        .is('parent_message_id', null)
         .order('created_at', { ascending: true });
 
       if (msgError) {
@@ -407,7 +408,7 @@ export default function ChatArea({
         },
         async (payload) => {
           if (payload.eventType === 'INSERT') {
-            if (payload.new.parent_message_id) return; // Skip thread replies in main feed
+            if (payload.new.parent_message_id) return;
 
             let senderProfile = null;
             if (payload.new.sender_id) {
@@ -602,6 +603,7 @@ export default function ChatArea({
         sender_id: currentUser?.id ?? null,
         media_url: mediaUrl,
         media_type: mediaType,
+        reply_to_id: replyingTo?.id || null,
       }
     ]);
 

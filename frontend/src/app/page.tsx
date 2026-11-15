@@ -117,7 +117,7 @@ export default function Home() {
         .single();
       if (chan) {
         targetChannel = chan;
-        setChannels((prev) => [...prev, chan]);
+        setChannels((prev) => (prev.some((c) => c.id === chan.id) ? prev : [...prev, chan]));
       }
     }
 
@@ -191,8 +191,9 @@ export default function Home() {
               currentUser={currentUser}
               onLogout={handleLogout}
               onChannelCreated={(newChannel) => {
-                setChannels((prev) => [...prev, newChannel]);
-                handleSelectChannel(newChannel.id);
+                setChannels((prev) => (prev.some((c) => c.id === newChannel.id) ? prev : [...prev, newChannel]));
+                setActiveTab('channel');
+                setSelectedChannelId(newChannel.id);
               }}
             />
           ) : (
@@ -260,6 +261,7 @@ export default function Home() {
                 <ChatArea
                   channelId={selectedChannelId}
                   channelName={selectedChannel?.name}
+                  currentUser={currentUser}
                   onOpenUserProfile={(userId) => setSelectedProfileUserId(userId)}
                   highlightedMessageId={highlightedMessageId}
                   onOpenThread={(message) => setActiveThreadMessage(message)}

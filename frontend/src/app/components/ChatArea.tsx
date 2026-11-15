@@ -126,7 +126,7 @@ interface ChatAreaProps {
   channelId: string;
   channelName?: string;
   customBackground?: string;
-  currentUser?: any; // <-- Add this line
+  currentUser?: any;
   onOpenUserProfile?: (userId: string) => void;
   highlightedMessageId?: string;
   onOpenThread?: (message: any) => void;
@@ -136,13 +136,14 @@ export default function ChatArea({
   channelId, 
   channelName, 
   customBackground, 
+  currentUser: propCurrentUser,
   onOpenUserProfile, 
   highlightedMessageId,
   onOpenThread 
 }: ChatAreaProps) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(propCurrentUser || null);
   const [channelCreatorId, setChannelCreatorId] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [onlineCount, setOnlineCount] = useState<number>(1);
@@ -176,10 +177,14 @@ export default function ChatArea({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setCurrentUser(user);
-    });
-  }, []);
+    if (propCurrentUser) {
+      setCurrentUser(propCurrentUser);
+    } else {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        setCurrentUser(user);
+      });
+    }
+  }, [propCurrentUser]);
 
   useEffect(() => {
     if (!channelId) return;

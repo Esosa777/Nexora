@@ -190,7 +190,21 @@ export default function Home() {
               onSelectChannel={handleSelectChannel}
               currentUser={currentUser}
               onLogout={handleLogout}
-              onChannelCreated={(newChannel) => {
+              onChannelCreated={async (newChannel) => {
+                // Ensure the creator is automatically upserted as an admin when a channel is created
+                if (currentUser && newChannel) {
+                  await supabase.from('channel_members').upsert(
+                    [
+                      {
+                        channel_id: newChannel.id,
+                        user_id: currentUser.id,
+                        role: 'admin',
+                      },
+                    ],
+                    { onConflict: 'channel_id,user_id' }
+                  );
+                }
+
                 setChannels((prev) => (prev.some((c) => c.id === newChannel.id) ? prev : [...prev, newChannel]));
                 setActiveTab('channel');
                 setSelectedChannelId(newChannel.id);

@@ -341,18 +341,18 @@ export default function ChatArea({
 
     async function getMessages() {
       const { data: rawMessages, error: msgError } = await supabase
-  .from('channel_messages')
-  .select(`
-    *,
-    profiles:sender_id (
-      id,
-      username,
-      avatar_url
-    )
-  `)
-  .eq('channel_id', channelId)
-  .is('parent_message_id', null)
-  .order('created_at', { ascending: true });
+        .from('channel_messages')
+        .select(`
+          *,
+          profiles:sender_id (
+            id,
+            username,
+            avatar_url
+          )
+        `)
+        .eq('channel_id', channelId)
+        .is('parent_message_id', null)
+        .order('created_at', { ascending: true });
 
       if (msgError) {
         console.error('Supabase error fetching messages:', msgError);
